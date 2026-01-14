@@ -317,6 +317,84 @@ async def get_thumb(videoid: str):
         print(f"[get_thumb Error] {e}")
         traceback.print_exc()
         
+        # Fallback to default thumbnail
+        try:
+            if os.path.exists(FALLBACK_THUMB):
+                print(f"[Fallback] Returning default thumbnail: {FALLBACK_THUMB}")
+                return FALLBACK_THUMB
+            else:
+                print(f"[Fallback Error] Default thumbnail not found at {FALLBACK_THUMB}")
+                return None
+        except Exception as fallback_error:
+            print(f"[Fallback Error] {fallback_error}")
+            return None
+        
+    finally:
+        # Clean up any partial downloads
+        if thumb_path and os.path.exists(thumb_path):
+            try:
+                os.remove(thumb_path)
+            except Exception as cleanup_error:
+                print(f"[Final Cleanup Error] {cleanup_error}")t_x + progress_width, duration_bar_y + duration_bar_height],
+            radius=duration_bar_height//2, fill=ACCENT_GREEN
+        )
+        time_font = ImageFont.truetype(FONT_REGULAR_PATH, 24)
+        draw.text((content_x, duration_bar_y + 15), "00:00", fill=TEXT_LIGHT_GRAY, font=time_font)
+        formatted_duration = format_duration(duration)
+        duration_width = draw.textlength(formatted_duration, font=time_font)
+        draw.text((content_x + duration_bar_width - duration_width, duration_bar_y + 15), 
+                 formatted_duration, fill=TEXT_LIGHT_GRAY, font=time_font)
+
+        curve_height = 80
+        curve_overlay = Image.new('RGBA', (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
+        curve_draw = ImageDraw.Draw(curve_overlay)
+        curve_points = [
+            (CANVAS_W - 200, 0),
+            (CANVAS_W, 0),
+            (CANVAS_W, curve_height),
+            (CANVAS_W - 150, curve_height + 30),
+            (CANVAS_W - 300, curve_height)
+        ]
+        curve_draw.polygon(curve_points, fill=(40, 40, 40, 180))
+        canvas = Image.alpha_composite(canvas, curve_overlay)
+        
+        circle_size = 120
+        circle_x = 20
+        circle_y = CANVAS_H - circle_size - 20
+        circle = Image.new('RGBA', (circle_size, circle_size), (0, 0, 0, 0))
+        circle_draw = ImageDraw.Draw(circle)
+        circle_draw.ellipse([0, 0, circle_size, circle_size], outline=ACCENT_RED, width=3)
+        canvas.paste(circle, (circle_x, circle_y), circle)
+        
+        info_box_y = duration_bar_y + 70
+        info_box_height = 50
+        draw.rounded_rectangle(
+            [content_x, info_box_y, content_x + 300, info_box_y + info_box_height],
+            radius=10, fill=(50, 50, 50, 255)
+        )
+        info_text = "Click to watch full video"
+        info_font = ImageFont.truetype(FONT_REGULAR_PATH, 22)
+        info_text_width = draw.textlength(info_text, font=info_font)
+        info_text_x = content_x + (300 - info_text_width) // 2
+        draw.text((info_text_x, info_box_y + 15), info_text, fill=TEXT_WHITE, font=info_font)
+
+        canvas = add_curve_overlay(canvas, curve_height=40, color=(30, 30, 30, 100))
+
+        out = CACHE_DIR / f"{videoid}_styled.png"
+        canvas.save(out, quality=95)
+
+        try:
+            if thumb_path and os.path.exists(thumb_path):
+                os.remove(thumb_path)
+        except Exception as cleanup_error:
+            print(f"[Cleanup Error] {cleanup_error}")
+
+        return str(out)
+
+    except Exception as e:
+        print(f"[get_thumb Error] {e}")
+        traceback.print_exc()
+        
         try:
             if os.path.exists(FALLBACK_THUMB):
                 print(f"[Fallback] Returning default thumbnail: {FALLBACK_THUMB}")
