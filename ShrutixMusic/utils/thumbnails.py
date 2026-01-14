@@ -34,7 +34,305 @@ from py_yt import VideosSearch
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-# Canvas size
+CANVAS_W, CANVAS_H = 1280, 720
+BACKGROUND_COLOR = (26, 26, 26, 255)
+TEXT_WHITE = (255, 255, 255, 255)
+TEXT_LIGHT_GRAY = (200, 200, 200, 255)
+TEXT_DARK_GRAY = (150, 150, 150, 255)
+ACCENT_RED = (255, 0, 0, 255)
+ACCENT_GREEN = (0, 200, 83, 255)
+ACCENT_BLUE = (66, 133, 244, 255)
+
+FONT_REGULAR_PATH = "ShrutixMusic/assets/font2.ttf"
+FONT_BOLD_PATH = "ShrutixMusic/assets/font3.ttf"
+FALLBACK_THUMB = "ShrutixMusic/assets/temp_thumb.jpg"
+
+def change_image_size(max_w, max_h, image):
+    try:
+        ratio = min(max_w / image.size[0], max_h / image.size[1])
+        return image.resize((int(image.size[0]*ratio), int(image.size[1]*ratio)), Image.LANCZOS)
+    except Exception as e:
+        print(f"[change_image_size Error] {e}")
+        return image
+
+def wrap_text_ellipsis(draw, text, font, max_width):
+    try:
+        if draw.textlength(text, font=font) <= max_width:
+            return text
+        
+        ellipsis = "..."
+        ellipsis_width = draw.textlength(ellipsis, font=font)
+        
+        result = ""
+        for char in text:
+            test = result + char + ellipsis
+            if draw.textlength(test, font=font) <= max_width:
+                result += char
+            else:
+                break
+        
+        return result + ellipsis if result else ellipsis
+    except Exception as e:
+        print(f"[wrap_text_ellipsis Error] {e}")
+        return text[:30]
+
+def fit_title_font(draw, text, max_width, font_path, start_size=48, min_size=36):
+    try:
+        size = start_size
+        while size >= min_size:
+            try:
+                font = ImageFont.truetype(font_path, size)
+            except:
+                size -= 2
+                continue
+            
+            wrapped = wrap_text_ellipsis(draw, text, font, max_width)
+            if draw.textlength(wrapped, font=font) <= max_width:
+                return font, wrapped
+            size -= 2
+        
+        font = ImageFont.truetype(font_path, min_size)
+        return font, wrap_text_ellipsis(draw, text, font, max_width)
+    except Exception as e:
+        print(f"[fit_title_font Error] {e}")
+        try:
+            font = ImageFont.truetype(font_path, min_size)
+            return font, text[:40]
+        except:
+            return ImageFont.load_default(), text[:40]
+
+def create_rounded_square(size, radius, color):
+    try:
+        image = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle([0, 0, size, size], radius=radius, fill=color)
+        return image
+    except Exception as e:
+        print(f"[create_rounded_square Error] {e}")
+        image = Image.new('RGBA', (size, size), color)
+        return image
+
+def add_curve_overlay(image, curve_height=60, color=(20, 20, 20, 200)):
+    try:
+        overlay = Image.new('RGBA', image.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
+        width, height = image.size
+        points = [
+            (0, 0),
+            (width, 0),
+            (width, curve_height),
+            (width//2 + 100, curve_height + 40),
+            (width//2 - 100, curve_height + 40),
+            (0, curve_height)
+        ]
+        draw.polygon(points, fill=color)
+        return Image.alpha_composite(image, overlay)
+    except Exception as e:
+        print(f"[add_curve_overlay Error] {e}")
+        return image
+
+def format_duration(duration_str):
+    try:
+        if not duration_str or duration_str == "Unknown":
+            return "5:11"
+        
+        if ":" in duration_str:
+            parts = duration_str.split(":")
+            if len(parts) == 2:
+                return f"{parts[0]}:{parts[1]}"
+            elif len(parts) == 3:
+                hours = int(parts[0])
+                minutes = int(parts[1]) + (hours * 60)
+                return f"{minutes}:{parts[2]}"
+        
+        try:
+            total_seconds = int(duration_str)
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+            return f"{minutes}:{seconds:02d}"
+        except:
+            return "5:11"
+    except Exception as e:
+        print(f"[format_duration Error] {e}")
+        return "5:11"
+
+async def get_thumb(videoid: str):
+    url = f"https://www.youtube.com/watch?v={videoid}"
+    thumb_path = None
+    
+    try:
+        results = VideosSearch(url, limit=1)
+        result = (await results.next())["result"][0]
+
+        title = result.get("title", "Unknown Title")
+        duration = result.get("duration", "Unknown")
+        thumburl = result["thumbnails"][0]["url"].split("?")[0]
+        views = result.get("viewCount", {}).get("short", "Unknown Views")
+        channel = result.get("channel", {}).get("name", "Unknown Channel")
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(thumburl) as resp:
+                if resp.status == 200:
+                    thumb_path = CACHE_DIR / f"thumb{videoid}.png"
+                    async with aiofiles.open(thumb_path, "wb") as f:
+                        await f.write(await resp.read())
+
+        base_img = Image.open(thumb_path).convert("RGBA")
+        canvas = Image.new("RGBA", (CANVAS_W, CANVAS_H), BACKGROUND_COLOR)
+        draw = ImageDraw.Draw(canvas)
+
+        for _ in range(1000):
+            x = random.randint(0, CANVAS_W-1)
+            y = random.randint(0, CANVAS_H-1)
+            draw.point((x, y), fill=(30, 30, 30, 255))
+
+        thumb_container_size = 500
+        thumb_container_x = 60
+        thumb_container_y = (CANVAS_H - thumb_container_size) // 2
+        
+        shadow_offset = 8
+        shadow = create_rounded_square(thumb_container_size + shadow_offset*2, 30, (0, 0, 0, 100))
+        canvas.paste(shadow, (thumb_container_x - shadow_offset, thumb_container_y - shadow_offset), shadow)
+        
+        container = create_rounded_square(thumb_container_size, 20, (40, 40, 40, 255))
+        canvas.paste(container, (thumb_container_x, thumb_container_y), container)
+        
+        thumb_size = 460
+        thumb_x = thumb_container_x + (thumb_container_size - thumb_size) // 2
+        thumb_y = thumb_container_y + (thumb_container_size - thumb_size) // 2
+        
+        thumb = base_img.resize((thumb_size, thumb_size), Image.LANCZOS)
+        thumb_mask = Image.new('L', (thumb_size, thumb_size), 0)
+        thumb_mask_draw = ImageDraw.Draw(thumb_mask)
+        thumb_mask_draw.rounded_rectangle([0, 0, thumb_size, thumb_size], radius=15, fill=255)
+        thumb.putalpha(thumb_mask)
+        canvas.paste(thumb, (thumb_x, thumb_y), thumb)
+        
+        play_button_size = 80
+        play_x = thumb_x + (thumb_size - play_button_size) // 2
+        play_y = thumb_y + (thumb_size - play_button_size) // 2
+        
+        play_circle = Image.new('RGBA', (play_button_size, play_button_size), (0, 0, 0, 0))
+        play_draw = ImageDraw.Draw(play_circle)
+        play_draw.ellipse([0, 0, play_button_size, play_button_size], fill=ACCENT_RED)
+        triangle_points = [
+            (play_button_size*0.4, play_button_size*0.3),
+            (play_button_size*0.4, play_button_size*0.7),
+            (play_button_size*0.7, play_button_size*0.5)
+        ]
+        play_draw.polygon(triangle_points, fill=TEXT_WHITE)
+        canvas.paste(play_circle, (play_x, play_y), play_circle)
+
+        content_x = thumb_container_x + thumb_container_size + 50
+        content_width = CANVAS_W - content_x - 60
+        
+        brand_font = ImageFont.truetype(FONT_BOLD_PATH, 34)
+        brand_text = "@Allicemusic bot"
+        brand_y = thumb_container_y + 30
+        draw.text((content_x + 2, brand_y + 2), brand_text, fill=(0, 0, 0, 150), font=brand_font)
+        draw.text((content_x, brand_y), brand_text, fill=ACCENT_BLUE, font=brand_font)
+        brand_width = draw.textlength(brand_text, font=brand_font)
+        draw.line([content_x, brand_y + 45, content_x + brand_width, brand_y + 45], fill=ACCENT_BLUE, width=2)
+
+        title_y = brand_y + 80
+        title_font, title_wrapped = fit_title_font(draw, title, content_width, FONT_BOLD_PATH, start_size=42, min_size=36)
+        draw.text((content_x + 3, title_y + 3), title_wrapped, fill=(0, 0, 0, 100), font=title_font)
+        draw.text((content_x, title_y), title_wrapped, fill=TEXT_WHITE, font=title_font)
+
+        info_y = title_y + 70
+        channel_font = ImageFont.truetype(FONT_REGULAR_PATH, 28)
+        channel_text = f"• {channel}"
+        draw.text((content_x, info_y), channel_text, fill=TEXT_LIGHT_GRAY, font=channel_font)
+
+        views_y = info_y + 45
+        views_text = f"{views}"
+        draw.text((content_x, views_y), views_text, fill=TEXT_DARK_GRAY, font=channel_font)
+
+        duration_bar_y = views_y + 70
+        duration_bar_width = content_width
+        duration_bar_height = 6
+        draw.rounded_rectangle(
+            [content_x, duration_bar_y, content_x + duration_bar_width, duration_bar_y + duration_bar_height],
+            radius=duration_bar_height//2, fill=(60, 60, 60, 255)
+        )
+        progress_width = int(duration_bar_width * 0.3)
+        draw.rounded_rectangle(
+            [content_x, duration_bar_y, content_x + progress_width, duration_bar_y + duration_bar_height],
+            radius=duration_bar_height//2, fill=ACCENT_GREEN
+        )
+        time_font = ImageFont.truetype(FONT_REGULAR_PATH, 24)
+        draw.text((content_x, duration_bar_y + 15), "00:00", fill=TEXT_LIGHT_GRAY, font=time_font)
+        formatted_duration = format_duration(duration)
+        duration_width = draw.textlength(formatted_duration, font=time_font)
+        draw.text((content_x + duration_bar_width - duration_width, duration_bar_y + 15), 
+                 formatted_duration, fill=TEXT_LIGHT_GRAY, font=time_font)
+
+        curve_height = 80
+        curve_overlay = Image.new('RGBA', (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
+        curve_draw = ImageDraw.Draw(curve_overlay)
+        curve_points = [
+            (CANVAS_W - 200, 0),
+            (CANVAS_W, 0),
+            (CANVAS_W, curve_height),
+            (CANVAS_W - 150, curve_height + 30),
+            (CANVAS_W - 300, curve_height)
+        ]
+        curve_draw.polygon(curve_points, fill=(40, 40, 40, 180))
+        canvas = Image.alpha_composite(canvas, curve_overlay)
+        
+        circle_size = 120
+        circle_x = 20
+        circle_y = CANVAS_H - circle_size - 20
+        circle = Image.new('RGBA', (circle_size, circle_size), (0, 0, 0, 0))
+        circle_draw = ImageDraw.Draw(circle)
+        circle_draw.ellipse([0, 0, circle_size, circle_size], outline=ACCENT_RED, width=3)
+        canvas.paste(circle, (circle_x, circle_y), circle)
+        
+        info_box_y = duration_bar_y + 70
+        info_box_height = 50
+        draw.rounded_rectangle(
+            [content_x, info_box_y, content_x + 300, info_box_y + info_box_height],
+            radius=10, fill=(50, 50, 50, 255)
+        )
+        info_text = "Click to watch full video"
+        info_font = ImageFont.truetype(FONT_REGULAR_PATH, 22)
+        info_text_width = draw.textlength(info_text, font=info_font)
+        info_text_x = content_x + (300 - info_text_width) // 2
+        draw.text((info_text_x, info_box_y + 15), info_text, fill=TEXT_WHITE, font=info_font)
+
+        canvas = add_curve_overlay(canvas, curve_height=40, color=(30, 30, 30, 100))
+
+        out = CACHE_DIR / f"{videoid}_styled.png"
+        canvas.save(out, quality=95)
+
+        try:
+            if thumb_path and os.path.exists(thumb_path):
+                os.remove(thumb_path)
+        except Exception as cleanup_error:
+            print(f"[Cleanup Error] {cleanup_error}")
+
+        return str(out)
+
+    except Exception as e:
+        print(f"[get_thumb Error] {e}")
+        traceback.print_exc()
+        
+        try:
+            if os.path.exists(FALLBACK_THUMB):
+                print(f"[Fallback] Returning default thumbnail: {FALLBACK_THUMB}")
+                return FALLBACK_THUMB
+            else:
+                print(f"[Fallback Error] Default thumbnail not found at {FALLBACK_THUMB}")
+                return None
+        except Exception as fallback_error:
+            print(f"[Fallback Error] {fallback_error}")
+            return None
+        finally:
+            try:
+                if thumb_path and os.path.exists(thumb_path):
+                    os.remove(thumb_path)
+            except:
+                pass# Canvas size
 CANVAS_W, CANVAS_H = 1280, 720
 
 # Color scheme from the image
