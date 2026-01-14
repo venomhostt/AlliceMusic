@@ -27,6 +27,7 @@ import aiohttp
 import aiofiles
 import traceback
 import random
+from datetime import datetime
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageEnhance
 from py_yt import VideosSearch
@@ -37,91 +38,107 @@ CACHE_DIR.mkdir(exist_ok=True)
 # Canvas size
 CANVAS_W, CANVAS_H = 1280, 720
 
-# Modern music theme colors
-GRADIENT_START = (30, 144, 255, 255)    # Dodger Blue
-GRADIENT_END = (138, 43, 226, 255)      # Blue Violet
-ACCENT_PURPLE = (147, 112, 219, 255)    # Medium Purple
-ACCENT_PINK = (255, 105, 180, 255)      # Hot Pink
-ACCENT_GREEN = (50, 205, 50, 255)       # Lime Green
+# Modern color palette
+PRIMARY_COLOR = (30, 144, 255, 255)    # Dodger Blue
+SECONDARY_COLOR = (138, 43, 226, 255)  # Blue Violet
+ACCENT_COLOR = (255, 105, 180, 255)    # Hot Pink
+NEON_GREEN = (57, 255, 20, 255)        # Neon Green
+NEON_BLUE = (0, 191, 255, 255)         # Deep Sky Blue
 TEXT_WHITE = (255, 255, 255, 255)
-TEXT_LIGHT = (230, 230, 230, 255)
-TEXT_SHADOW = (20, 20, 20, 200)
-NEON_BLUE = (0, 191, 255, 255)
-NEON_PINK = (255, 20, 147, 255)
+TEXT_LIGHT = (240, 240, 240, 255)
+TEXT_GRAY = (200, 200, 200, 255)
+GLOW_COLOR = (30, 144, 255, 150)
+SHADOW_COLOR = (10, 10, 10, 180)
+OVERLAY_COLOR = (0, 0, 0, 150)         # Dark overlay for text readability
 
 # Font paths
 FONT_REGULAR_PATH = "ShrutixMusic/assets/font2.ttf"
 FONT_BOLD_PATH = "ShrutixMusic/assets/font3.ttf"
 FALLBACK_THUMB = "ShrutixMusic/assets/temp_thumb.jpg"
 
-def change_image_size(max_w, max_h, image):
+def create_gradient_background(width, height):
+    """Create a beautiful gradient background"""
     try:
-        ratio = min(max_w / image.size[0], max_h / image.size[1])
-        return image.resize((int(image.size[0]*ratio), int(image.size[1]*ratio)), Image.LANCZOS)
-    except Exception as e:
-        print(f"[change_image_size Error] {e}")
-        return image
-
-def create_gradient(width, height, color1, color2, horizontal=False):
-    """Create a smooth gradient background"""
-    try:
-        base = Image.new('RGB', (width, height), color1)
-        top = Image.new('RGB', (width, height), color2)
+        # Create gradient from top to bottom
+        gradient = Image.new('RGB', (width, height), (20, 20, 40))
         
-        mask = Image.new('L', (width, height))
-        mask_data = []
+        # Add gradient overlay
+        overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(overlay)
         
+        # Draw gradient manually for better control
         for y in range(height):
-            if horizontal:
-                alpha = int(255 * y / height)
-            else:
-                alpha = int(255 * y / height)
-            mask_data.extend([alpha] * width)
+            # Create gradient from dark blue to purple
+            r = int(20 + (y / height) * 100)
+            g = int(20 + (y / height) * 50)
+            b = int(40 + (y / height) * 100)
+            draw.line([(0, y), (width, y)], fill=(r, g, b, 255))
         
-        mask.putdata(mask_data)
-        base.paste(top, (0, 0), mask)
-        return base.convert('RGBA')
+        gradient = gradient.convert('RGBA')
+        gradient = Image.alpha_composite(gradient, overlay)
+        
+        return gradient
     except Exception as e:
-        print(f"[create_gradient Error] {e}")
-        return Image.new('RGBA', (width, height), color1)
+        print(f"[create_gradient_background Error] {e}")
+        return Image.new('RGBA', (width, height), (20, 20, 40, 255))
 
-def add_rounded_corners(image, radius):
-    """Add rounded corners to image"""
+def apply_blur_overlay(image, blur_radius=15, brightness=0.7, overlay_opacity=120):
+    """Apply blur and overlay effect to background"""
     try:
-        mask = Image.new('L', image.size, 0)
-        draw = ImageDraw.Draw(mask)
-        draw.rounded_rectangle([0, 0, image.size[0], image.size[1]], radius=radius, fill=255)
+        # Apply blur
+        blurred = image.filter(ImageFilter.GaussianBlur(blur_radius))
         
-        result = image.copy()
-        result.putalpha(mask)
+        # Adjust brightness
+        enhancer = ImageEnhance.Brightness(blurred)
+        blurred = enhancer.enhance(brightness)
+        
+        # Add dark overlay for better text readability
+        overlay = Image.new('RGBA', image.size, (0, 0, 0, overlay_opacity))
+        result = Image.alpha_composite(blurred, overlay)
+        
         return result
     except Exception as e:
-        print(f"[add_rounded_corners Error] {e}")
+        print(f"[apply_blur_overlay Error] {e}")
         return image
 
-def add_modern_shadow(image, offset=8, blur_radius=15, shadow_color=(0, 0, 0, 100)):
-    """Add modern shadow effect"""
-    try:
-        shadow = Image.new('RGBA', 
-                          (image.size[0] + offset*2, image.size[1] + offset*2), 
-                          (0, 0, 0, 0))
-        
-        shadow_draw = ImageDraw.Draw(shadow)
-        shadow_draw.rounded_rectangle(
-            [offset, offset, 
-             image.size[0] + offset, image.size[1] + offset],
-            radius=25,
-            fill=shadow_color
+def create_rounded_rectangle(size, radius, color, border_color=None, border_width=0):
+    """Create a rounded rectangle with optional border"""
+    width, height = size
+    image = Image.new('RGBA', size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    
+    # Draw rounded rectangle
+    draw.rounded_rectangle([0, 0, width, height], radius=radius, fill=color)
+    
+    # Add border if specified
+    if border_color and border_width > 0:
+        draw.rounded_rectangle(
+            [border_width//2, border_width//2, 
+             width - border_width//2, height - border_width//2],
+            radius=radius, outline=border_color, width=border_width
         )
+    
+    return image
+
+def add_glass_effect(image, radius=20, opacity=60):
+    """Add glass morphism effect to an element"""
+    try:
+        glass = image.copy()
         
-        shadow = shadow.filter(ImageFilter.GaussianBlur(blur_radius))
-        return shadow
+        # Apply blur for glass effect
+        glass = glass.filter(ImageFilter.GaussianBlur(2))
+        
+        # Create overlay for glass effect
+        overlay = Image.new('RGBA', image.size, (255, 255, 255, opacity))
+        glass = Image.alpha_composite(glass, overlay)
+        
+        return glass
     except Exception as e:
-        print(f"[add_modern_shadow Error] {e}")
+        print(f"[add_glass_effect Error] {e}")
         return image
 
-def wrap_text(draw, text, font, max_width, max_lines=2):
-    """Wrap text with ellipsis if too long"""
+def wrap_text_with_ellipsis(draw, text, font, max_width, max_lines=2):
+    """Wrap text and add ellipsis if too long"""
     try:
         words = text.split()
         lines = []
@@ -138,17 +155,17 @@ def wrap_text(draw, text, font, max_width, max_lines=2):
                     lines.append(' '.join(current_line))
                     current_line = [word]
                 else:
-                    # Single word too long, truncate
-                    lines.append(word[:20] + "...")
+                    # Single word too long
+                    lines.append(word)
                     break
-                    
+                
                 if len(lines) >= max_lines:
                     # Add ellipsis to last line
                     if len(lines) == max_lines:
                         last_line = lines[-1]
-                        while draw.textlength(last_line + " ...", font=font) > max_width and len(last_line) > 3:
+                        while draw.textlength(last_line + "...", font=font) > max_width and len(last_line) > 3:
                             last_line = last_line[:-1]
-                        lines[-1] = last_line + " ..."
+                        lines[-1] = last_line + "..."
                     break
         
         if current_line and len(lines) < max_lines:
@@ -156,11 +173,11 @@ def wrap_text(draw, text, font, max_width, max_lines=2):
         
         return '\n'.join(lines)
     except Exception as e:
-        print(f"[wrap_text Error] {e}")
+        print(f"[wrap_text_with_ellipsis Error] {e}")
         return text[:50]
 
-def fit_title_font(draw, text, max_width, font_path, max_lines=2, start_size=42, min_size=32):
-    """Find optimal font size for title"""
+def fit_font_to_width(draw, text, max_width, font_path, start_size=36, min_size=24, max_lines=2):
+    """Find optimal font size for text within width"""
     try:
         size = start_size
         while size >= min_size:
@@ -170,68 +187,96 @@ def fit_title_font(draw, text, max_width, font_path, max_lines=2, start_size=42,
                 size -= 2
                 continue
             
-            wrapped = wrap_text(draw, text, font, max_width, max_lines)
+            wrapped = wrap_text_with_ellipsis(draw, text, font, max_width, max_lines)
             lines = wrapped.split('\n')
             
-            if len(lines) <= max_lines and all(draw.textlength(line, font=font) <= max_width for line in lines):
-                return font, wrapped
+            if len(lines) <= max_lines:
+                # Check if all lines fit
+                fits = True
+                for line in lines:
+                    if draw.textlength(line, font=font) > max_width:
+                        fits = False
+                        break
+                if fits:
+                    return font, wrapped
             size -= 2
         
+        # Fallback to minimum size
         font = ImageFont.truetype(font_path, min_size)
-        return font, wrap_text(draw, text, font, max_width, max_lines)
+        wrapped = wrap_text_with_ellipsis(draw, text, font, max_width, max_lines)
+        return font, wrapped
     except Exception as e:
-        print(f"[fit_title_font Error] {e}")
+        print(f"[fit_font_to_width Error] {e}")
         try:
             font = ImageFont.truetype(font_path, min_size)
             return font, text[:40]
         except:
             return ImageFont.load_default(), text[:40]
 
-def add_glow_effect(draw, text, position, font, glow_color, iterations=3):
-    """Add glow effect to text"""
+def add_text_shadow(draw, text, position, font, shadow_color=SHADOW_COLOR, offset=3):
+    """Add shadow to text for better readability"""
     x, y = position
-    for i in range(iterations, 0, -1):
-        offset = i
-        alpha = 100 // (i * 2)
-        glow_color_with_alpha = (glow_color[0], glow_color[1], glow_color[2], alpha)
-        draw.text((x + offset, y + offset), text, fill=glow_color_with_alpha, font=font)
-        draw.text((x - offset, y + offset), text, fill=glow_color_with_alpha, font=font)
-        draw.text((x + offset, y - offset), text, fill=glow_color_with_alpha, font=font)
-        draw.text((x - offset, y - offset), text, fill=glow_color_with_alpha, font=font)
+    draw.text((x + offset, y + offset), text, fill=shadow_color, font=font)
+    return (x, y)
 
-def create_music_visualizer(width, height, count=20):
-    """Create decorative music visualizer bars"""
+def create_info_badge(text, bg_color, text_color, font_size=24, padding=15):
+    """Create a badge for information display"""
     try:
-        visualizer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(visualizer)
+        # Create temporary image to calculate text size
+        temp_img = Image.new('RGB', (1, 1))
+        temp_draw = ImageDraw.Draw(temp_img)
+        font = ImageFont.truetype(FONT_BOLD_PATH, font_size)
         
-        bar_width = width // (count * 2)
-        spacing = bar_width
+        text_width = temp_draw.textlength(text, font=font)
+        text_height = font_size
         
-        colors = [ACCENT_PURPLE, ACCENT_PINK, NEON_BLUE, ACCENT_GREEN, NEON_PINK]
+        # Create badge
+        badge_width = int(text_width) + padding * 2
+        badge_height = text_height + padding
         
-        for i in range(count):
-            x = i * (bar_width + spacing) + spacing
-            # Random height for dynamic look
-            bar_height = random.randint(height // 4, height - 50)
-            bar_y = height - bar_height
-            
-            color = colors[i % len(colors)]
-            
-            # Draw bar with gradient
-            for h in range(bar_height):
-                alpha = int(255 * (h / bar_height))
-                draw.rectangle(
-                    [x, bar_y + h, x + bar_width, bar_y + h + 1],
-                    fill=(color[0], color[1], color[2], alpha)
-                )
+        badge = create_rounded_rectangle(
+            (badge_width, badge_height), 
+            badge_height // 2, 
+            bg_color
+        )
         
-        return visualizer
+        # Add glass effect
+        badge = add_glass_effect(badge, radius=badge_height // 2, opacity=30)
+        
+        # Draw text
+        badge_draw = ImageDraw.Draw(badge)
+        text_x = padding
+        text_y = (badge_height - text_height) // 2
+        
+        add_text_shadow(badge_draw, text, (text_x, text_y), font, SHADOW_COLOR, 1)
+        badge_draw.text((text_x, text_y), text, fill=text_color, font=font)
+        
+        return badge
     except Exception as e:
-        print(f"[create_music_visualizer Error] {e}")
-        return Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        print(f"[create_info_badge Error] {e}")
+        return None
 
-async def get_thumb(videoid: str):
+def create_progress_bar(width, height, progress=0.3, bg_color=(50, 50, 50), fill_color=NEON_GREEN):
+    """Create a modern progress bar"""
+    bar = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(bar)
+    
+    # Background
+    draw.rounded_rectangle([0, 0, width, height], radius=height//2, fill=bg_color)
+    
+    # Progress fill
+    fill_width = int(width * progress)
+    if fill_width > 0:
+        draw.rounded_rectangle([0, 0, fill_width, height], radius=height//2, fill=fill_color)
+    
+    # Add inner shadow
+    shadow = Image.new('RGBA', (width, height), (0, 0, 0, 30))
+    bar = Image.alpha_composite(bar, shadow)
+    
+    return bar
+
+async def get_thumb(videoid: str, requested_by: str = "User"):
+    """Generate thumbnail with blurred YouTube background and all details"""
     url = f"https://www.youtube.com/watch?v={videoid}"
     thumb_path = None
     
@@ -241,10 +286,21 @@ async def get_thumb(videoid: str):
         result = (await results.next())["result"][0]
 
         title = result.get("title", "Unknown Title")
-        duration = result.get("duration", "Unknown")
+        duration = result.get("duration", "0:00")
         thumburl = result["thumbnails"][0]["url"].split("?")[0]
-        views = result.get("viewCount", {}).get("short", "Unknown Views")
+        views = result.get("viewCount", {}).get("short", "0 views")
         channel = result.get("channel", {}).get("name", "Unknown Channel")
+        
+        # Get current time for timestamp
+        current_time = datetime.now().strftime("%I:%M %p")
+        
+        # Format duration properly
+        if ":" not in duration and duration.isdigit():
+            # Convert seconds to MM:SS
+            total_seconds = int(duration)
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+            duration = f"{minutes}:{seconds:02d}"
 
         # Download thumbnail
         async with aiohttp.ClientSession() as session:
@@ -255,86 +311,102 @@ async def get_thumb(videoid: str):
                         await f.write(await resp.read())
 
         base_img = Image.open(thumb_path).convert("RGBA")
-
-        # Create canvas with gradient background
-        canvas = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 255))
         
-        # Add gradient background
-        gradient = create_gradient(CANVAS_W, CANVAS_H, 
-                                 GRADIENT_START[:3], 
-                                 GRADIENT_END[:3])
-        canvas.paste(gradient, (0, 0))
+        # Create canvas with blurred YouTube thumbnail as background
+        # First, resize thumbnail to cover canvas
+        bg = base_img.resize((CANVAS_W, CANVAS_H), Image.LANCZOS)
+        
+        # Apply blur and overlay effects
+        bg = apply_blur_overlay(bg, blur_radius=20, brightness=0.6, overlay_opacity=140)
+        
+        # Create final canvas
+        canvas = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 255))
+        canvas.paste(bg, (0, 0))
+        
+        # Create a content area overlay (glass morphism effect)
+        content_overlay = Image.new('RGBA', (CANVAS_W - 100, CANVAS_H - 100), (0, 0, 0, 0))
+        content_draw = ImageDraw.Draw(content_overlay)
+        
+        # Create glass effect rectangle
+        content_draw.rounded_rectangle(
+            [0, 0, CANVAS_W - 100, CANVAS_H - 100],
+            radius=40,
+            fill=(255, 255, 255, 40)  # Semi-transparent white for glass effect
+        )
+        
+        # Apply blur for glass effect
+        content_overlay = content_overlay.filter(ImageFilter.GaussianBlur(10))
+        
+        # Place content overlay
+        canvas.paste(content_overlay, (50, 50), content_overlay)
         
         draw = ImageDraw.Draw(canvas)
         
-        # Add decorative music visualizer at bottom
-        visualizer_height = 120
-        visualizer = create_music_visualizer(CANVAS_W, visualizer_height)
-        canvas.paste(visualizer, (0, CANVAS_H - visualizer_height), visualizer)
+        # Add decorative elements
         
-        # Add curved overlay for depth
-        overlay = Image.new('RGBA', (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
-        overlay_draw = ImageDraw.Draw(overlay)
+        # Top decorative wave
+        wave_overlay = Image.new('RGBA', (CANVAS_W, 150), (0, 0, 0, 0))
+        wave_draw = ImageDraw.Draw(wave_overlay)
+        wave_draw.rectangle([0, 0, CANVAS_W, 150], fill=(30, 144, 255, 30))
         
-        # Create curved shape for design
-        curve_points = [
-            (0, CANVAS_H),
-            (CANVAS_W, CANVAS_H),
-            (CANVAS_W, CANVAS_H - 150),
-            (CANVAS_W // 2 + 200, CANVAS_H - 250),
-            (CANVAS_W // 2 - 200, CANVAS_H - 250),
-            (0, CANVAS_H - 150)
-        ]
-        overlay_draw.polygon(curve_points, fill=(0, 0, 0, 50))
+        # Create wave pattern
+        wave_points = []
+        for x in range(0, CANVAS_W + 100, 100):
+            wave_points.append((x, 150))
+        for x in range(CANVAS_W, -100, -100):
+            wave_points.append((x, 120))
         
-        # Add second smaller curve
-        curve_points2 = [
-            (0, CANVAS_H),
-            (CANVAS_W, CANVAS_H),
-            (CANVAS_W, CANVAS_H - 100),
-            (CANVAS_W // 2 + 150, CANVAS_H - 180),
-            (CANVAS_W // 2 - 150, CANVAS_H - 180),
-            (0, CANVAS_H - 100)
-        ]
-        overlay_draw.polygon(curve_points2, fill=(0, 0, 0, 30))
+        if len(wave_points) > 1:
+            wave_draw.polygon(wave_points, fill=(30, 144, 255, 50))
         
-        canvas = Image.alpha_composite(canvas, overlay)
+        canvas = Image.alpha_composite(canvas, wave_overlay)
         
-        # Prepare thumbnail (square with rounded corners)
-        thumb_size = 400
-        thumb_padding = 60
-        thumb_x = thumb_padding
-        thumb_y = (CANVAS_H - thumb_size) // 2
+        # Main content layout
         
-        # Resize and crop thumbnail to square
-        thumb = base_img.resize((thumb_size, thumb_size), Image.LANCZOS)
+        # YouTube thumbnail preview (clear version)
+        thumb_preview_size = 380
+        thumb_preview_x = 80
+        thumb_preview_y = (CANVAS_H - thumb_preview_size) // 2
         
-        # Add rounded corners to thumbnail
-        thumb = add_rounded_corners(thumb, 30)
+        # Create thumbnail with rounded corners and border
+        thumb_preview = base_img.resize((thumb_preview_size, thumb_preview_size), Image.LANCZOS)
         
-        # Add modern shadow
-        shadow = add_modern_shadow(thumb, offset=12, blur_radius=20)
-        shadow_x = thumb_x - 12
-        shadow_y = thumb_y - 12
-        canvas.paste(shadow, (shadow_x, shadow_y), shadow)
+        # Add rounded corners
+        thumb_mask = Image.new('L', (thumb_preview_size, thumb_preview_size), 0)
+        thumb_mask_draw = ImageDraw.Draw(thumb_mask)
+        thumb_mask_draw.rounded_rectangle(
+            [0, 0, thumb_preview_size, thumb_preview_size],
+            radius=20,
+            fill=255
+        )
+        thumb_preview.putalpha(thumb_mask)
         
-        # Place thumbnail with decorative border
-        border_size = thumb_size + 10
-        border = Image.new('RGBA', (border_size, border_size), ACCENT_PURPLE)
-        border = add_rounded_corners(border, 35)
-        canvas.paste(border, (thumb_x - 5, thumb_y - 5), border)
+        # Add border
+        border_size = thumb_preview_size + 10
+        border = create_rounded_rectangle(
+            (border_size, border_size), 
+            25, 
+            (30, 144, 255, 100),
+            border_color=NEON_BLUE,
+            border_width=3
+        )
+        canvas.paste(border, 
+                    (thumb_preview_x - 5, thumb_preview_y - 5), 
+                    border)
         
         # Place thumbnail
-        canvas.paste(thumb, (thumb_x, thumb_y), thumb)
+        canvas.paste(thumb_preview, 
+                    (thumb_preview_x, thumb_preview_y), 
+                    thumb_preview)
         
         # Add play button overlay
-        play_size = 80
-        play_x = thumb_x + (thumb_size - play_size) // 2
-        play_y = thumb_y + (thumb_size - play_size) // 2
+        play_size = 70
+        play_x = thumb_preview_x + (thumb_preview_size - play_size) // 2
+        play_y = thumb_preview_y + (thumb_preview_size - play_size) // 2
         
-        play_bg = Image.new('RGBA', (play_size, play_size), (0, 0, 0, 150))
+        play_bg = Image.new('RGBA', (play_size, play_size), (0, 0, 0, 0))
         play_draw = ImageDraw.Draw(play_bg)
-        play_draw.ellipse([0, 0, play_size, play_size], fill=NEON_PINK)
+        play_draw.ellipse([0, 0, play_size, play_size], fill=ACCENT_COLOR)
         
         # Play triangle
         triangle_points = [
@@ -344,121 +416,186 @@ async def get_thumb(videoid: str):
         ]
         play_draw.polygon(triangle_points, fill=TEXT_WHITE)
         
-        play_bg = play_bg.filter(ImageFilter.GaussianBlur(2))
+        # Add shadow to play button
+        play_shadow = play_bg.filter(ImageFilter.GaussianBlur(3))
+        canvas.paste(play_shadow, (play_x, play_y), play_shadow)
         canvas.paste(play_bg, (play_x, play_y), play_bg)
         
         # Content area (right side)
-        content_x = thumb_x + thumb_size + 80
-        content_width = CANVAS_W - content_x - 60
+        content_x = thumb_preview_x + thumb_preview_size + 60
+        content_width = CANVAS_W - content_x - 80
         
-        # Branding/Logo
-        brand_font = ImageFont.truetype(FONT_BOLD_PATH, 36)
-        brand_text = "🎵 Shrutix Music"
-        brand_y = thumb_y - 10
+        # Branding/Header
+        header_font = ImageFont.truetype(FONT_BOLD_PATH, 40)
+        header_text = "🎵 SHRUTIX MUSIC PLAYER"
+        header_y = thumb_preview_y - 20
         
-        # Add glow effect to branding
-        add_glow_effect(draw, brand_text, (content_x, brand_y), brand_font, NEON_BLUE)
-        draw.text((content_x, brand_y), brand_text, fill=TEXT_WHITE, font=brand_font)
+        # Draw header with shadow
+        header_shadow = add_text_shadow(draw, header_text, (content_x, header_y), header_font)
+        draw.text(header_shadow, header_text, fill=NEON_GREEN, font=header_font)
         
-        # "NOW PLAYING" badge
-        np_font = ImageFont.truetype(FONT_BOLD_PATH, 28)
-        np_text = "▶️ NOW PLAYING"
-        np_width = draw.textlength(np_text, font=np_font)
-        np_x = content_x
-        np_y = brand_y + 60
+        # Now Playing indicator
+        np_font = ImageFont.truetype(FONT_BOLD_PATH, 32)
+        np_text = "▶ NOW PLAYING"
+        np_y = header_y + 60
         
-        # Badge background
-        badge_padding = 20
-        badge_height = 45
-        badge_bg = Image.new('RGBA', (int(np_width) + badge_padding * 2, badge_height), (0, 0, 0, 0))
-        badge_draw = ImageDraw.Draw(badge_bg)
-        badge_draw.rounded_rectangle(
-            [0, 0, np_width + badge_padding * 2, badge_height],
-            radius=badge_height // 2,
-            fill=NEON_PINK
+        # Create NOW PLAYING badge
+        np_badge = create_info_badge(np_text, (30, 144, 255, 150), TEXT_WHITE, 28, 20)
+        if np_badge:
+            canvas.paste(np_badge, (content_x, np_y), np_badge)
+        
+        # Song Title
+        title_y = np_y + 80
+        title_font, title_wrapped = fit_font_to_width(
+            draw, title, content_width, FONT_BOLD_PATH, 
+            start_size=42, min_size=32, max_lines=2
         )
         
-        # Add badge to canvas
-        badge_pos = (np_x - badge_padding, np_y)
-        canvas.paste(badge_bg, badge_pos, badge_bg)
-        draw.text((np_x, np_y + badge_height // 2 - 12), np_text, fill=TEXT_WHITE, font=np_font)
+        # Draw title with shadow
+        title_shadow = add_text_shadow(draw, title_wrapped, (content_x, title_y), title_font, offset=2)
+        draw.text(title_shadow, title_wrapped, fill=TEXT_WHITE, font=title_font)
         
-        # Title section
-        title_y = np_y + badge_height + 40
-        title_font, title_wrapped = fit_title_font(
-            draw, title, content_width - 40, FONT_BOLD_PATH,
-            max_lines=2, start_size=38, min_size=32
+        # Song Details Section (Glass effect panel)
+        details_y = title_y + 120
+        details_panel_height = 200
+        details_panel = create_rounded_rectangle(
+            (content_width, details_panel_height),
+            25,
+            (255, 255, 255, 30)
         )
         
-        # Title with shadow
-        draw.multiline_text((content_x + 3, title_y + 3), 
-                          title_wrapped, fill=TEXT_SHADOW,
-                          font=title_font, spacing=8, align='left')
-        draw.multiline_text((content_x, title_y), 
-                          title_wrapped, fill=TEXT_WHITE,
-                          font=title_font, spacing=8, align='left')
+        # Apply glass effect
+        details_panel = add_glass_effect(details_panel, radius=25, opacity=40)
         
-        # Metadata section with icons
-        meta_start_y = title_y + 120
-        meta_font = ImageFont.truetype(FONT_REGULAR_PATH, 28)
-        icon_font = ImageFont.truetype(FONT_REGULAR_PATH, 30)
+        # Place details panel
+        canvas.paste(details_panel, (content_x, details_y), details_panel)
         
-        # Channel info
+        # Draw details inside panel
+        details_draw = ImageDraw.Draw(canvas)
+        details_font = ImageFont.truetype(FONT_REGULAR_PATH, 26)
+        icon_font = ImageFont.truetype(FONT_REGULAR_PATH, 28)
+        
+        # Row 1: Channel and Duration
+        row1_y = details_y + 30
+        
+        # Channel
         channel_icon = "📺"
-        channel_text = f"  {channel}"
-        draw.text((content_x, meta_start_y), channel_icon, fill=ACCENT_GREEN, font=icon_font)
-        draw.text((content_x + 40, meta_start_y), channel_text, fill=TEXT_LIGHT, font=meta_font)
+        channel_text = f" {channel}"
+        details_draw.text((content_x + 30, row1_y), channel_icon, fill=NEON_BLUE, font=icon_font)
+        add_text_shadow(details_draw, channel_text, (content_x + 70, row1_y), details_font, offset=1)
+        details_draw.text((content_x + 70, row1_y), channel_text, fill=TEXT_LIGHT, font=details_font)
         
-        # Views info
-        views_icon = "👁️"
-        views_text = f"  {views}"
-        draw.text((content_x, meta_start_y + 50), views_icon, fill=NEON_BLUE, font=icon_font)
-        draw.text((content_x + 40, meta_start_y + 50), views_text, fill=TEXT_LIGHT, font=meta_font)
-        
-        # Duration info
+        # Duration
         duration_icon = "⏱️"
-        duration_text = f"  {duration}"
-        draw.text((content_x, meta_start_y + 100), duration_icon, fill=ACCENT_PURPLE, font=icon_font)
-        draw.text((content_x + 40, meta_start_y + 100), duration_text, fill=TEXT_LIGHT, font=meta_font)
+        duration_text = f" {duration}"
+        duration_x = content_x + content_width - 200
+        details_draw.text((duration_x, row1_y), duration_icon, fill=ACCENT_COLOR, font=icon_font)
+        add_text_shadow(details_draw, duration_text, (duration_x + 40, row1_y), details_font, offset=1)
+        details_draw.text((duration_x + 40, row1_y), duration_text, fill=TEXT_LIGHT, font=details_font)
         
-        # Add decorative elements
+        # Row 2: Views and Requested By
+        row2_y = row1_y + 60
         
-        # Top right decorative circle
-        circle_size = 120
-        circle_x = CANVAS_W - circle_size - 40
-        circle_y = 40
+        # Views
+        views_icon = "👁️"
+        views_text = f" {views}"
+        details_draw.text((content_x + 30, row2_y), views_icon, fill=NEON_GREEN, font=icon_font)
+        add_text_shadow(details_draw, views_text, (content_x + 70, row2_y), details_font, offset=1)
+        details_draw.text((content_x + 70, row2_y), views_text, fill=TEXT_LIGHT, font=details_font)
+        
+        # Requested By
+        user_icon = "👤"
+        user_text = f" {requested_by}"
+        user_x = content_x + content_width - 250
+        details_draw.text((user_x, row2_y), user_icon, fill=(255, 215, 0, 255), font=icon_font)
+        add_text_shadow(details_draw, user_text, (user_x + 40, row2_y), details_font, offset=1)
+        details_draw.text((user_x + 40, row2_y), user_text, fill=TEXT_LIGHT, font=details_font)
+        
+        # Row 3: Progress Bar and Time
+        row3_y = row2_y + 60
+        
+        # Progress bar
+        progress_bar_width = content_width - 60
+        progress_bar_height = 10
+        progress_bar = create_progress_bar(
+            progress_bar_width, 
+            progress_bar_height, 
+            progress=0.4,  # 40% progress
+            bg_color=(60, 60, 60, 200),
+            fill_color=NEON_GREEN
+        )
+        canvas.paste(progress_bar, (content_x + 30, row3_y), progress_bar)
+        
+        # Time stamps
+        time_font = ImageFont.truetype(FONT_REGULAR_PATH, 22)
+        draw.text((content_x + 30, row3_y + 20), "0:00", fill=TEXT_GRAY, font=time_font)
+        
+        # Current time
+        time_text = f"🕒 {current_time}"
+        time_width = draw.textlength(time_text, font=time_font)
+        draw.text((content_x + content_width - time_width - 30, row3_y + 20), 
+                 time_text, fill=TEXT_GRAY, font=time_font)
+        
+        # Bottom decorative elements
+        
+        # Music visualizer effect
+        visualizer_height = 80
+        visualizer = Image.new('RGBA', (CANVAS_W, visualizer_height), (0, 0, 0, 0))
+        viz_draw = ImageDraw.Draw(visualizer)
+        
+        # Create animated-looking bars
+        bar_count = 20
+        bar_width = 20
+        spacing = 10
+        start_x = (CANVAS_W - (bar_count * (bar_width + spacing))) // 2
+        
+        colors = [NEON_BLUE, ACCENT_COLOR, NEON_GREEN, (255, 215, 0, 255)]
+        
+        for i in range(bar_count):
+            x = start_x + i * (bar_width + spacing)
+            # Random heights for dynamic look
+            bar_height = random.randint(20, visualizer_height - 20)
+            bar_y = visualizer_height - bar_height
+            
+            color = colors[i % len(colors)]
+            
+            # Draw bar with gradient
+            for h in range(bar_height):
+                alpha = int(255 * (h / bar_height))
+                viz_draw.rectangle(
+                    [x, bar_y + h, x + bar_width, bar_y + h + 1],
+                    fill=(color[0], color[1], color[2], alpha)
+                )
+        
+        canvas.paste(visualizer, (0, CANVAS_H - visualizer_height), visualizer)
+        
+        # Add decorative corner elements
+        
+        # Top-left decorative circle
+        circle_size = 80
         circle_img = Image.new('RGBA', (circle_size, circle_size), (0, 0, 0, 0))
         circle_draw = ImageDraw.Draw(circle_img)
-        circle_draw.ellipse([0, 0, circle_size, circle_size], 
-                          outline=ACCENT_PINK, width=4)
+        circle_draw.ellipse([0, 0, circle_size, circle_size], outline=NEON_BLUE, width=3)
+        circle_draw.ellipse([10, 10, circle_size-10, circle_size-10], outline=ACCENT_COLOR, width=2)
+        canvas.paste(circle_img, (40, 40), circle_img)
         
-        # Add smaller inner circle
-        inner_circle_size = circle_size - 30
-        circle_draw.ellipse(
-            [(circle_size - inner_circle_size) // 2, 
-             (circle_size - inner_circle_size) // 2,
-             (circle_size + inner_circle_size) // 2,
-             (circle_size + inner_circle_size) // 2],
-            outline=NEON_BLUE, width=2
-        )
-        
-        canvas.paste(circle_img, (circle_x, circle_y), circle_img)
-        
-        # Bottom right music note
-        music_font = ImageFont.truetype(FONT_BOLD_PATH, 48)
+        # Bottom-right music note
+        music_font = ImageFont.truetype(FONT_BOLD_PATH, 60)
         music_note = "♪"
-        music_x = CANVAS_W - 80
+        music_x = CANVAS_W - 100
         music_y = CANVAS_H - 120
-        add_glow_effect(draw, music_note, (music_x, music_y), music_font, NEON_PINK, iterations=5)
-        draw.text((music_x, music_y), music_note, fill=ACCENT_PURPLE, font=music_font)
+        add_text_shadow(draw, music_note, (music_x, music_y), music_font, offset=3)
+        draw.text((music_x, music_y), music_note, fill=ACCENT_COLOR, font=music_font)
         
-        # Add subtle particles/glitter
-        for _ in range(50):
+        # Add subtle floating particles
+        for _ in range(30):
             x = random.randint(0, CANVAS_W)
-            y = random.randint(0, CANVAS_H // 2)
-            size = random.randint(1, 3)
-            color = random.choice([NEON_BLUE, ACCENT_PINK, ACCENT_PURPLE, ACCENT_GREEN])
-            draw.ellipse([x, y, x + size, y + size], fill=color)
+            y = random.randint(0, CANVAS_H)
+            size = random.randint(2, 4)
+            color = random.choice([NEON_BLUE, ACCENT_COLOR, NEON_GREEN])
+            alpha = random.randint(100, 200)
+            draw.ellipse([x, y, x + size, y + size], 
+                        fill=(color[0], color[1], color[2], alpha))
         
         # Save final thumbnail
         out = CACHE_DIR / f"{videoid}_styled.png"
@@ -496,3 +633,8 @@ async def get_thumb(videoid: str):
                 os.remove(thumb_path)
             except Exception as cleanup_error:
                 print(f"[Final Cleanup Error] {cleanup_error}")
+
+# For backward compatibility
+async def get_thumb_legacy(videoid: str):
+    """Legacy function for backward compatibility"""
+    return await get_thumb(videoid, "Listener")
