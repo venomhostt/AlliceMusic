@@ -33,8 +33,378 @@ from py_yt import VideosSearch
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-# New dimensions for modern thumbnail
+# Canvas size
 CANVAS_W, CANVAS_H = 1280, 720
+
+# Color scheme from the image
+BACKGROUND_COLOR = (26, 26, 26, 255)  # Dark gray background
+TEXT_WHITE = (255, 255, 255, 255)
+TEXT_LIGHT_GRAY = (200, 200, 200, 255)
+TEXT_DARK_GRAY = (150, 150, 150, 255)
+ACCENT_RED = (255, 0, 0, 255)
+ACCENT_GREEN = (0, 200, 83, 255)
+ACCENT_BLUE = (66, 133, 244, 255)
+
+FONT_REGULAR_PATH = "ShrutixMusic/assets/font2.ttf"
+FONT_BOLD_PATH = "ShrutixMusic/assets/font3.ttf"
+FALLBACK_THUMB = "ShrutixMusic/assets/temp_thumb.jpg"
+
+def change_image_size(max_w, max_h, image):
+    try:
+        ratio = min(max_w / image.size[0], max_h / image.size[1])
+        return image.resize((int(image.size[0]*ratio), int(image.size[1]*ratio)), Image.LANCZOS)
+    except Exception as e:
+        print(f"[change_image_size Error] {e}")
+        return image
+
+def wrap_text_ellipsis(draw, text, font, max_width):
+    """Wrap text and add ellipsis if too long"""
+    try:
+        if draw.textlength(text, font=font) <= max_width:
+            return text
+        
+        ellipsis = "..."
+        ellipsis_width = draw.textlength(ellipsis, font=font)
+        
+        result = ""
+        for char in text:
+            test = result + char + ellipsis
+            if draw.textlength(test, font=font) <= max_width:
+                result += char
+            else:
+                break
+        
+        return result + ellipsis if result else ellipsis
+    except Exception as e:
+        print(f"[wrap_text_ellipsis Error] {e}")
+        return text[:30]
+
+def fit_title_font(draw, text, max_width, font_path, start_size=48, min_size=36):
+    """Find optimal font size for title"""
+    try:
+        size = start_size
+        while size >= min_size:
+            try:
+                font = ImageFont.truetype(font_path, size)
+            except:
+                size -= 2
+                continue
+            
+            wrapped = wrap_text_ellipsis(draw, text, font, max_width)
+            if draw.textlength(wrapped, font=font) <= max_width:
+                return font, wrapped
+            size -= 2
+        
+        font = ImageFont.truetype(font_path, min_size)
+        return font, wrap_text_ellipsis(draw, text, font, max_width)
+    except Exception as e:
+        print(f"[fit_title_font Error] {e}")
+        try:
+            font = ImageFont.truetype(font_path, min_size)
+            return font, text[:40]
+        except:
+            return ImageFont.load_default(), text[:40]
+
+def create_rounded_square(size, radius, color):
+    """Create a rounded square/rectangle"""
+    image = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle([0, 0, size, size], radius=radius, fill=color)
+    return image
+
+def add_curve_overlay(image, curve_height=60, color=(20, 20, 20, 200)):
+    """Add curved overlay on top of image"""
+    overlay = Image.new('RGBA', image.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    
+    # Draw curved shape
+    width, height = image.size
+    points = [
+        (0, 0),
+        (width, 0),
+        (width, curve_height),
+        (width//2 + 100, curve_height + 40),
+        (width//2 - 100, curve_height + 40),
+        (0, curve_height)
+    ]
+    
+    draw.polygon(points, fill=color)
+    
+    # Blend with original image
+    return Image.alpha_composite(image, overlay)
+
+def format_duration(duration_str):
+    """Format duration string"""
+    if not duration_str or duration_str == "Unknown":
+        return "0:00"
+    
+    # Remove any non-numeric characters except colon
+    if ":" in duration_str:
+        return duration_str
+    elif duration_str.isdigit():
+        minutes = int(duration_str) // 60
+        seconds = int(duration_str) % 60
+        return f"{minutes}:{seconds:02d}"
+    else:
+        return duration_str
+
+async def get_thumb(videoid: str):
+    url = f"https://www.youtube.com/watch?v={videoid}"
+    thumb_path = None
+    
+    try:
+        # Fetch video data
+        results = VideosSearch(url, limit=1)
+        result = (await results.next())["result"][0]
+
+        title    = result.get("title", "Unknown Title")
+        duration = result.get("duration", "Unknown")
+        thumburl = result["thumbnails"][0]["url"].split("?")[0]
+        views    = result.get("viewCount", {}).get("short", "Unknown Views")
+        channel  = result.get("channel", {}).get("name", "Unknown Channel")
+
+        # Download thumbnail
+        async with aiohttp.ClientSession() as session:
+            async with session.get(thumburl) as resp:
+                if resp.status == 200:
+                    thumb_path = CACHE_DIR / f"thumb{videoid}.png"
+                    async with aiofiles.open(thumb_path, "wb") as f:
+                        await f.write(await resp.read())
+
+        base_img = Image.open(thumb_path).convert("RGBA")
+
+        # Create canvas with dark gray background
+        canvas = Image.new("RGBA", (CANVAS_W, CANVAS_H), BACKGROUND_COLOR)
+        draw = ImageDraw.Draw(canvas)
+
+        # Add subtle texture/noise
+        for i in range(1000):
+            x = random.randint(0, CANVAS_W-1)
+            y = random.randint(0, CANVAS_H-1)
+            draw.point((x, y), fill=(30, 30, 30, 255))
+
+        # Thumbnail container (rounded square on left side)
+        thumb_container_size = 500
+        thumb_container_x = 60
+        thumb_container_y = (CANVAS_H - thumb_container_size) // 2
+        
+        # Container with shadow
+        shadow_offset = 8
+        shadow = create_rounded_square(thumb_container_size + shadow_offset*2, 
+                                     30, (0, 0, 0, 100))
+        canvas.paste(shadow, (thumb_container_x - shadow_offset, 
+                            thumb_container_y - shadow_offset), shadow)
+        
+        # Main container
+        container = create_rounded_square(thumb_container_size, 20, (40, 40, 40, 255))
+        canvas.paste(container, (thumb_container_x, thumb_container_y), container)
+        
+        # Process and place thumbnail (smaller than container)
+        thumb_size = 460
+        thumb_x = thumb_container_x + (thumb_container_size - thumb_size) // 2
+        thumb_y = thumb_container_y + (thumb_container_size - thumb_size) // 2
+        
+        # Resize thumbnail
+        thumb = base_img.resize((thumb_size, thumb_size), Image.LANCZOS)
+        
+        # Create rounded mask for thumbnail
+        thumb_mask = Image.new('L', (thumb_size, thumb_size), 0)
+        thumb_mask_draw = ImageDraw.Draw(thumb_mask)
+        thumb_mask_draw.rounded_rectangle([0, 0, thumb_size, thumb_size], 
+                                        radius=15, fill=255)
+        
+        thumb.putalpha(thumb_mask)
+        canvas.paste(thumb, (thumb_x, thumb_y), thumb)
+        
+        # Add play button overlay (red circle with triangle)
+        play_button_size = 80
+        play_x = thumb_x + (thumb_size - play_button_size) // 2
+        play_y = thumb_y + (thumb_size - play_button_size) // 2
+        
+        play_circle = Image.new('RGBA', (play_button_size, play_button_size), (0, 0, 0, 0))
+        play_draw = ImageDraw.Draw(play_circle)
+        play_draw.ellipse([0, 0, play_button_size, play_button_size], fill=ACCENT_RED)
+        
+        # Play triangle
+        triangle_size = 30
+        triangle_points = [
+            (play_button_size*0.4, play_button_size*0.3),
+            (play_button_size*0.4, play_button_size*0.7),
+            (play_button_size*0.7, play_button_size*0.5)
+        ]
+        play_draw.polygon(triangle_points, fill=TEXT_WHITE)
+        
+        canvas.paste(play_circle, (play_x, play_y), play_circle)
+
+        # Content area (right side)
+        content_x = thumb_container_x + thumb_container_size + 50
+        content_width = CANVAS_W - content_x - 60
+        
+        # Branding/Channel name (top)
+        brand_font = ImageFont.truetype(FONT_BOLD_PATH, 34)
+        brand_text = "@Allicemusic bot"
+        brand_y = thumb_container_y + 30
+        
+        # Draw channel name with underline effect
+        draw.text((content_x + 2, brand_y + 2), brand_text, 
+                 fill=(0, 0, 0, 150), font=brand_font)
+        draw.text((content_x, brand_y), brand_text, 
+                 fill=ACCENT_BLUE, font=brand_font)
+        
+        # Underline
+        brand_width = draw.textlength(brand_text, font=brand_font)
+        draw.line([content_x, brand_y + 45, content_x + brand_width, brand_y + 45], 
+                 fill=ACCENT_BLUE, width=2)
+
+        # Title
+        title_y = brand_y + 80
+        title_font, title_wrapped = fit_title_font(
+            draw, title, content_width, FONT_BOLD_PATH, 
+            start_size=42, min_size=36
+        )
+        
+        # Title with subtle shadow
+        draw.text((content_x + 3, title_y + 3), title_wrapped, 
+                 fill=(0, 0, 0, 100), font=title_font)
+        draw.text((content_x, title_y), title_wrapped, 
+                 fill=TEXT_WHITE, font=title_font)
+
+        # Video info section
+        info_y = title_y + 70
+        
+        # Channel name with icon
+        channel_font = ImageFont.truetype(FONT_REGULAR_PATH, 28)
+        channel_text = f"• {channel}"
+        draw.text((content_x, info_y), channel_text, 
+                 fill=TEXT_LIGHT_GRAY, font=channel_font)
+
+        # Views count
+        views_y = info_y + 45
+        views_text = f"{views}"
+        draw.text((content_x, views_y), views_text, 
+                 fill=TEXT_DARK_GRAY, font=channel_font)
+
+        # Duration bar (like in reference image)
+        duration_bar_y = views_y + 70
+        duration_bar_width = content_width
+        duration_bar_height = 6
+        
+        # Background bar
+        draw.rounded_rectangle(
+            [content_x, duration_bar_y, 
+             content_x + duration_bar_width, duration_bar_y + duration_bar_height],
+            radius=duration_bar_height//2, fill=(60, 60, 60, 255)
+        )
+        
+        # Progress bar (green)
+        progress_width = int(duration_bar_width * 0.3)  # 30% progress
+        draw.rounded_rectangle(
+            [content_x, duration_bar_y, 
+             content_x + progress_width, duration_bar_y + duration_bar_height],
+            radius=duration_bar_height//2, fill=ACCENT_GREEN
+        )
+        
+        # Time stamps
+        time_font = ImageFont.truetype(FONT_REGULAR_PATH, 24)
+        draw.text((content_x, duration_bar_y + 15), "00:00", 
+                 fill=TEXT_LIGHT_GRAY, font=time_font)
+        
+        # Format duration properly
+        formatted_duration = format_duration(duration)
+        duration_width = draw.textlength(formatted_duration, font=time_font)
+        draw.text((content_x + duration_bar_width - duration_width, duration_bar_y + 15), 
+                 formatted_duration, fill=TEXT_LIGHT_GRAY, font=time_font)
+
+        # Decorative elements (curves like in reference)
+        # Top right curve
+        curve_height = 80
+        curve_overlay = Image.new('RGBA', (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
+        curve_draw = ImageDraw.Draw(curve_overlay)
+        
+        # Draw curved shape at top right
+        curve_points = [
+            (CANVAS_W - 200, 0),
+            (CANVAS_W, 0),
+            (CANVAS_W, curve_height),
+            (CANVAS_W - 150, curve_height + 30),
+            (CANVAS_W - 300, curve_height)
+        ]
+        curve_draw.polygon(curve_points, fill=(40, 40, 40, 180))
+        
+        canvas = Image.alpha_composite(canvas, curve_overlay)
+        
+        # Bottom left decorative circle
+        circle_size = 120
+        circle_x = 20
+        circle_y = CANVAS_H - circle_size - 20
+        
+        circle = Image.new('RGBA', (circle_size, circle_size), (0, 0, 0, 0))
+        circle_draw = ImageDraw.Draw(circle)
+        circle_draw.ellipse([0, 0, circle_size, circle_size], 
+                          outline=ACCENT_RED, width=3)
+        
+        canvas.paste(circle, (circle_x, circle_y), circle)
+        
+        # YouTube-style info box
+        info_box_y = duration_bar_y + 70
+        info_box_height = 50
+        
+        # Info box background
+        draw.rounded_rectangle(
+            [content_x, info_box_y, 
+             content_x + 300, info_box_y + info_box_height],
+            radius=10, fill=(50, 50, 50, 255)
+        )
+        
+        # Info text
+        info_text = "Click to watch full video"
+        info_font = ImageFont.truetype(FONT_REGULAR_PATH, 22)
+        info_text_width = draw.textlength(info_text, font=info_font)
+        info_text_x = content_x + (300 - info_text_width) // 2
+        draw.text((info_text_x, info_box_y + 15), info_text, 
+                 fill=TEXT_WHITE, font=info_font)
+
+        # Add final curved overlay for depth
+        canvas = add_curve_overlay(canvas, curve_height=40, color=(30, 30, 30, 100))
+
+        # Save final thumbnail
+        out = CACHE_DIR / f"{videoid}_styled.png"
+        canvas.save(out, quality=95)
+
+        # Clean up downloaded thumbnail
+        try:
+            if thumb_path and os.path.exists(thumb_path):
+                os.remove(thumb_path)
+        except Exception as cleanup_error:
+            print(f"[Cleanup Error] {cleanup_error}")
+
+        return str(out)
+
+    except Exception as e:
+        print(f"[get_thumb Error] {e}")
+        traceback.print_exc()
+        
+        # Fallback: Return the default thumbnail
+        try:
+            if os.path.exists(FALLBACK_THUMB):
+                print(f"[Fallback] Returning default thumbnail: {FALLBACK_THUMB}")
+                return FALLBACK_THUMB
+            else:
+                print(f"[Fallback Error] Default thumbnail not found at {FALLBACK_THUMB}")
+                return None
+        except Exception as fallback_error:
+            print(f"[Fallback Error] {fallback_error}")
+            return None
+        finally:
+            # Clean up any partial downloads
+            try:
+                if thumb_path and os.path.exists(thumb_path):
+                    os.remove(thumb_path)
+            except:
+                pass
+
+# Add random import for texture
+import randomCANVAS_W, CANVAS_H = 1280, 720
 
 # Modern color palette
 PRIMARY_COLOR = (144, 238, 144, 255)  # Light green
