@@ -1,40 +1,44 @@
 import os
 import aiohttp
 import aiofiles
-import traceback
-import random
-import math
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageEnhance, ImageOps
+from PIL import Image, ImageDraw, ImageFilter
 from py_yt import VideosSearch
 
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-# Canvas size
-CANVAS_W, CANVAS_H = 1280, 720
-
-# Modern music theme colors
-GRADIENT_START = (30, 144, 255, 255)    # Dodger Blue
-GRADIENT_END = (138, 43, 226, 255)      # Blue Violet
-ACCENT_PURPLE = (147, 112, 219, 255)    # Medium Purple
-ACCENT_PINK = (255, 105, 180, 255)      # Hot Pink
-ACCENT_GREEN = (50, 205, 50, 255)       # Lime Green
-TEXT_WHITE = (255, 255, 255, 255)
-TEXT_LIGHT = (230, 230, 230, 255)
-TEXT_SHADOW = (20, 20, 20, 200)
-NEON_BLUE = (0, 191, 255, 255)
-NEON_PINK = (255, 20, 147, 255)
-PROGRESS_GREEN = (30, 215, 96, 255)     # Spotify green
-
-# Font paths
-FONT_REGULAR_PATH = "ShrutixMusic/assets/font2.ttf"
-FONT_BOLD_PATH = "ShrutixMusic/assets/font3.ttf"
-DEFAULT_THUMB = "ShrutixMusic/assets/temp_thumb.jpg"
-
-def create_gradient(width, height, color1, color2, horizontal=False):
-    """Create a smooth gradient background"""
+async def get_thumb(videoid: str):
     try:
+        url = f"https://www.youtube.com/watch?v={videoid}"
+        results = VideosSearch(url, limit=1)
+        result = (await results.next())["result"][0]
+        
+        title = result.get("title", "Music Title")
+        thumburl = result["thumbnails"][0]["url"]
+        
+        thumb_path = CACHE_DIR / f"thumb{videoid}.jpg"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(thumburl) as resp:
+                async with aiofiles.open(thumb_path, "wb") as f:
+                    await f.write(await resp.read())
+        
+        img = Image.open(thumb_path)
+        img = img.resize((1280, 720))
+        
+        draw = ImageDraw.Draw(img)
+        
+        output = CACHE_DIR / f"{videoid}.jpg"
+        img.save(output, quality=95)
+        
+        if os.path.exists(thumb_path):
+            os.remove(thumb_path)
+        
+        return str(output)
+        
+    except Exception as e:
+        print(f"Error generating thumb: {e}")
+        return "ShrutixMusic/assets/temp_thumb.jpg"    try:
         base = Image.new('RGB', (width, height), color1)
         top = Image.new('RGB', (width, height), color2)
         
