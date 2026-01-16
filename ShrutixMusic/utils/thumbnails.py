@@ -9,74 +9,11 @@ from py_yt import VideosSearch
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-CANVAS_W, CANVAS_H = 1320, 760
-BG_BLUR = 16
-BG_BRIGHTNESS = 1  
+CANVAS_W, CANVAS_H = 1200, 675
+BG_BLUR = 15
 
-LIME_BORDER = (158, 255, 49, 255)
-RING_COLOR  = (98, 193, 169, 255)
-TEXT_WHITE  = (245, 245, 245, 255)
-TEXT_SOFT   = (230, 230, 230, 255)
-TEXT_SHADOW = (0, 0, 0, 140)
-
-FONT_REGULAR_PATH = "ShrutixMusic/assets/font2.ttf"
-FONT_BOLD_PATH    = "ShrutixMusic/assets/font3.ttf"
-FALLBACK_THUMB    = "ShrutixMusic/assets/temp_thumb.jpg"
-
-def change_image_size(max_w, max_h, image):
-    try:
-        ratio = min(max_w / image.size[0], max_h / image.size[1])
-        return image.resize((int(image.size[0]*ratio), int(image.size[1]*ratio)), Image.LANCZOS)
-    except Exception as e:
-        print(f"[change_image_size Error] {e}")
-        return image
-
-def wrap_two_lines(draw, text, font, max_width):
-    try:
-        words = text.split()
-        line1, line2 = "", ""
-        for w in words:
-            test = (line1 + " " + w).strip()
-            if draw.textlength(test, font=font) <= max_width:
-                line1 = test
-            else:
-                break
-        remaining = text[len(line1):].strip()
-        if remaining:
-            for w in remaining.split():
-                test = (line2 + " " + w).strip()
-                if draw.textlength(test, font=font) <= max_width:
-                    line2 = test
-                else:
-                    break
-        return (line1 + ("\n" + line2 if line2 else "")).strip()
-    except Exception as e:
-        print(f"[wrap_two_lines Error] {e}")
-        return text[:50]
-
-def fit_title_two_lines(draw, text, max_width, font_path, start_size=58, min_size=30):
-    try:
-        size = start_size
-        while size >= min_size:
-            try:
-                f = ImageFont.truetype(font_path, size)
-            except:
-                size -= 1
-                continue
-            wrapped = wrap_two_lines(draw, text, f, max_width)
-            lines = wrapped.split("\n")
-            if len(lines) <= 2 and all(draw.textlength(l, font=f) <= max_width for l in lines):
-                return f, wrapped
-            size -= 1
-        f = ImageFont.truetype(font_path, min_size)
-        return f, wrap_two_lines(draw, text, f, max_width)
-    except Exception as e:
-        print(f"[fit_title_two_lines Error] {e}")
-        try:
-            f = ImageFont.truetype(font_path, min_size)
-            return f, text[:50]
-        except:
-            return ImageFont.load_default(), text[:50]
+FONT_PATH = "ShrutixMusic/assets/font2.ttf"
+FALLBACK_THUMB = "ShrutixMusic/assets/temp_thumb.jpg"
 
 async def get_thumb(videoid: str):
     url = f"https://www.youtube.com/watch?v={videoid}"
@@ -86,11 +23,11 @@ async def get_thumb(videoid: str):
         results = VideosSearch(url, limit=1)
         result = (await results.next())["result"][0]
 
-        title    = result.get("title", "Unknown Title")
+        title = result.get("title", "Unknown Title")
         duration = result.get("duration", "Unknown")
         thumburl = result["thumbnails"][0]["url"].split("?")[0]
-        views    = result.get("viewCount", {}).get("short", "Unknown Views")
-        channel  = result.get("channel", {}).get("name", "Unknown Channel")
+        views = result.get("viewCount", {}).get("short", "Unknown Views")
+        channel = result.get("channel", {}).get("name", "Unknown Channel")
 
         async with aiohttp.ClientSession() as session:
             async with session.get(thumburl) as resp:
@@ -101,96 +38,106 @@ async def get_thumb(videoid: str):
 
         base_img = Image.open(thumb_path).convert("RGBA")
 
-        bg = change_image_size(CANVAS_W, CANVAS_H, base_img).convert("RGBA")
+        bg = base_img.resize((CANVAS_W, CANVAS_H), Image.LANCZOS)
         bg = bg.filter(ImageFilter.GaussianBlur(BG_BLUR))
-        bg = ImageEnhance.Brightness(bg).enhance(BG_BRIGHTNESS)
+        bg = ImageEnhance.Brightness(bg).enhance(0.8)
 
         canvas = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 255))
         canvas.paste(bg, (0, 0))
         draw = ImageDraw.Draw(canvas)
 
-        frame_inset = 12
         draw.rectangle(
-            [frame_inset//2, frame_inset//2, CANVAS_W - frame_inset//2, CANVAS_H - frame_inset//2],
-            outline=LIME_BORDER, width=frame_inset
+            [10, 10, CANVAS_W - 10, CANVAS_H - 10],
+            outline=(0, 255, 163, 255), width=8
         )
 
-        thumb_size = 470
-        ring_width = 20
-        circle_x = 92
+        thumb_size = 400
+        circle_x = 80
         circle_y = (CANVAS_H - thumb_size) // 2
 
-        circular_mask = Image.new("L", (thumb_size, thumb_size), 0)
-        mdraw = ImageDraw.Draw(circular_mask)
+        mask = Image.new("L", (thumb_size, thumb_size), 0)
+        mdraw = ImageDraw.Draw(mask)
         mdraw.ellipse((0, 0, thumb_size, thumb_size), fill=255)
 
         art = base_img.resize((thumb_size, thumb_size))
-        art.putalpha(circular_mask)
+        art.putalpha(mask)
 
-        ring_size = thumb_size + ring_width * 2
+        ring_size = thumb_size + 30
         ring_img = Image.new("RGBA", (ring_size, ring_size), (0, 0, 0, 0))
         rdraw = ImageDraw.Draw(ring_img)
-        ring_bbox = (ring_width//2, ring_width//2, ring_size - ring_width//2, ring_size - ring_width//2)
-        rdraw.ellipse(ring_bbox, outline=RING_COLOR, width=ring_width)
+        rdraw.ellipse((15, 15, ring_size - 15, ring_size - 15), outline=(0, 255, 163, 255), width=15)
 
-        canvas.paste(ring_img, (circle_x - ring_width, circle_y - ring_width), ring_img)
+        canvas.paste(ring_img, (circle_x - 15, circle_y - 15), ring_img)
         canvas.paste(art, (circle_x, circle_y), art)
 
         try:
-            tl_font = ImageFont.truetype(FONT_BOLD_PATH, 34)
+            tl_font = ImageFont.truetype(FONT_PATH, 40)
         except:
             tl_font = ImageFont.load_default()
-            
-        draw.text((28+1, 18+1), "AlliceMusicBot", fill=TEXT_SHADOW, font=tl_font)
-        draw.text((28, 18), "AlliceMusicBot", fill=TEXT_WHITE, font=tl_font)
+        
+        draw.text((30, 30), "♫ MUSIC BOT", fill=(255, 255, 255, 255), font=tl_font)
 
         info_x = circle_x + thumb_size + 60
-        max_text_w = CANVAS_W - info_x - 48
+        max_text_w = CANVAS_W - info_x - 40
 
         try:
-            np_font = ImageFont.truetype(FONT_BOLD_PATH, 60)
+            np_font = ImageFont.truetype(FONT_PATH, 65)
         except:
             np_font = ImageFont.load_default()
-            
-        np_text = "NOW PLAYING"
-        np_w = draw.textlength(np_text, font=np_font)
-        np_x = info_x + (max_text_w - np_w) // 2 - 95
-        np_y = circle_y + 30  
-        draw.text((np_x+2, np_y+2), np_text, fill=TEXT_SHADOW, font=np_font)
-        draw.text((np_x, np_y), np_text, fill=TEXT_WHITE, font=np_font)
+        
+        draw.text((info_x, 80), "NOW PLAYING", fill=(255, 255, 255, 255), font=np_font)
 
-        title_font, title_wrapped = fit_title_two_lines(draw, title, max_text_w, FONT_BOLD_PATH, start_size=30, min_size=30)
-        title_y = np_y + 110   
-        draw.multiline_text((info_x+2, title_y+2), title_wrapped, fill=TEXT_SHADOW, font=title_font, spacing=8)
-        draw.multiline_text((info_x, title_y), title_wrapped, fill=TEXT_WHITE, font=title_font, spacing=8)
+        draw.line([(info_x, 160), (info_x + max_text_w, 160)], fill=(0, 255, 163, 255), width=4)
 
         try:
-            meta_font = ImageFont.truetype(FONT_REGULAR_PATH, 30)
+            title_font = ImageFont.truetype(FONT_PATH, 45)
+        except:
+            title_font = ImageFont.load_default()
+        
+        words = title.split()
+        line1 = ""
+        line2 = ""
+        
+        for w in words:
+            test = (line1 + " " + w).strip()
+            if draw.textlength(test, font=title_font) <= max_text_w:
+                line1 = test
+            else:
+                break
+        
+        remaining = title[len(line1):].strip()
+        if remaining:
+            for w in remaining.split():
+                test = (line2 + " " + w).strip()
+                if draw.textlength(test, font=title_font) <= max_text_w:
+                    line2 = test
+                else:
+                    break
+        
+        title_text = (line1 + ("\n" + line2 if line2 else "")).strip()
+        
+        draw.multiline_text((info_x, 190), title_text, fill=(255, 255, 255, 255), font=title_font, spacing=10)
+
+        try:
+            meta_font = ImageFont.truetype(FONT_PATH, 30)
         except:
             meta_font = ImageFont.load_default()
-            
-        line_gap = 46
-        meta_start_y = title_y + 130  
-        duration_label = duration
-        if duration and ":" in duration and "Min" not in duration and "min" not in duration:
-            duration_label = f"{duration} Mins"
+        
+        draw.text((info_x, 320), f"👁️ {views}", fill=(200, 200, 200, 255), font=meta_font)
+        draw.text((info_x, 370), f"⏱️ {duration}", fill=(200, 200, 200, 255), font=meta_font)
+        draw.text((info_x, 420), f"📺 {channel}", fill=(200, 200, 200, 255), font=meta_font)
 
-        def draw_meta(y, text):
-            draw.text((info_x+1, y+1), text, fill=TEXT_SHADOW, font=meta_font)
-            draw.text((info_x, y), text, fill=TEXT_SOFT, font=meta_font)
-
-        draw_meta(meta_start_y + 0 * line_gap, f"Views : {views}")
-        draw_meta(meta_start_y + 1 * line_gap, f"Duration : {duration_label}")
-        draw_meta(meta_start_y + 2 * line_gap, f"Channel : {channel}")
+        for i in range(0, CANVAS_W, 40):
+            draw.line([(i, 0), (i, CANVAS_H)], fill=(255, 255, 255, 10), width=1)
+        
+        for i in range(0, CANVAS_H, 40):
+            draw.line([(0, i), (CANVAS_W, i)], fill=(255, 255, 255, 10), width=1)
 
         out = CACHE_DIR / f"{videoid}_styled.png"
-        canvas.save(out)
+        canvas.save(out, quality=95)
 
-        try:
-            if thumb_path and os.path.exists(thumb_path):
-                os.remove(thumb_path)
-        except Exception as cleanup_error:
-            print(f"[Cleanup Error] {cleanup_error}")
+        if thumb_path and os.path.exists(thumb_path):
+            os.remove(thumb_path)
 
         return str(out)
 
@@ -198,81 +145,10 @@ async def get_thumb(videoid: str):
         print(f"[get_thumb Error] {e}")
         traceback.print_exc()
         
-        try:
-            if os.path.exists(FALLBACK_THUMB):
-                print(f"[Fallback] Returning default thumbnail: {FALLBACK_THUMB}")
-                return FALLBACK_THUMB
-            else:
-                print(f"[Fallback Error] Default thumbnail not found at {FALLBACK_THUMB}")
-                return None
-        except Exception as fallback_error:
-            print(f"[Fallback Error] {fallback_error}")
-            return None
-        finally:
-            try:
-                if thumb_path and os.path.exists(thumb_path):
-                    os.remove(thumb_path)
-            except:
-                pass
-
-    return None    
-    mask = Image.new('L', size)
-    mask_data = []
-    
-    if direction == 'diagonal':
-        for y in range(size[1]):
-            for x in range(size[0]):
-                value = int(255 * (x + y) / (size[0] + size[1]))
-                mask_data.append(value)
-    else:
-        for y in range(size[1]):
-            value = int(255 * y / size[1])
-            for x in range(size[0]):
-                mask_data.append(value)
-    
-    mask.putdata(mask_data)
-    base.paste(top, (0, 0), mask)
-    return base
-
-def create_noise_texture(size, intensity=10):
-    """Create noise texture"""
-    noise_img = Image.new('RGBA', size, (0, 0, 0, 0))
-    noise_draw = ImageDraw.Draw(noise_img)
-    
-    for y in range(0, size[1], 2):
-        for x in range(0, size[0], 2):
-            if random.random() > 0.7:
-                gray = random.randint(0, intensity)
-                noise_draw.point((x, y), (gray, gray, gray, 5))
-    
-    return noise_img
-
-def add_glow_effect(image, glow_color, radius=20):
-    """Add glow effect to image"""
-    glow = image.filter(ImageFilter.GaussianBlur(radius))
-    glow = ImageChops.multiply(glow, Image.new('RGBA', glow.size, glow_color))
-    return Image.alpha_composite(glow, image)
-
-def create_vibrant_border(image, border_color, border_width=10, glow=True):
-    """Create a vibrant border with optional glow"""
-    border_img = Image.new('RGBA', image.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(border_img)
-    
-    for i in range(border_width):
-        alpha = 255 - (i * 255 // border_width)
-        color = (*border_color[:3], alpha)
-        draw.rectangle(
-            [i, i, image.size[0]-i, image.size[1]-i],
-            outline=color,
-            width=1
-        )
-    
-    if glow:
-        border_img = border_img.filter(ImageFilter.GaussianBlur(3))
-    
-    return Image.alpha_composite(image, border_img)
-
-def draw_text_with_shadow(draw, position, text, font, main_color, shadow_color, shadow_offset=(3, 3)):
+        if os.path.exists(FALLBACK_THUMB):
+            return FALLBACK_THUMB
+        
+        return Nonewith_shadow(draw, position, text, font, main_color, shadow_color, shadow_offset=(3, 3)):
     """Draw text with shadow effect"""
     x, y = position
     sx, sy = shadow_offset
