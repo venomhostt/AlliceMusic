@@ -1,279 +1,142 @@
-# Copyright (c) 2025 Nand Yaduwanshi <NoxxOP>
-# Location: Supaul, Bihar
-#
-# All rights reserved.
-#
-# This code is the intellectual property of Nand Yaduwanshi.
-# You are not allowed to copy, modify, redistribute, or use this
-# code for commercial or personal projects without explicit permission.
-#
-# Allowed:
-# - Forking for personal learning
-# - Submitting improvements via pull requests
-#
-# Not Allowed:
-# - Claiming this code as your own
-# - Re-uploading without credit or permission
-# - Selling or using commercially
-#
-# Contact for permissions:
-# Email: badboy809075@gmail.com
-#
-# ATLEAST GIVE CREDITS IF YOU STEALING :
-# ELSE NO FURTHER PUBLIC THUMBNAIL UPDATES
+DEFAULT_THUMB = "ShrutixMusic/assets/ShrutiBots.jpg"
 
-import os
-import aiohttp
-import aiofiles
-import traceback
-import random
-from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageEnhance
-from py_yt import VideosSearch
 
-CACHE_DIR = Path("cache")
-CACHE_DIR.mkdir(exist_ok=True)
-
-# Canvas size
-CANVAS_W, CANVAS_H = 1280, 720
-
-# Modern music theme colors
-GRADIENT_START = (30, 144, 255, 255)    # Dodger Blue
-GRADIENT_END = (138, 43, 226, 255)      # Blue Violet
-ACCENT_PURPLE = (147, 112, 219, 255)    # Medium Purple
-ACCENT_PINK = (255, 105, 180, 255)      # Hot Pink
-ACCENT_GREEN = (50, 205, 50, 255)       # Lime Green
-TEXT_WHITE = (255, 255, 255, 255)
-TEXT_LIGHT = (230, 230, 230, 255)
-TEXT_SHADOW = (20, 20, 20, 200)
-NEON_BLUE = (0, 191, 255, 255)
-NEON_PINK = (255, 20, 147, 255)
-
-# Font paths
-FONT_REGULAR_PATH = "ShrutixMusic/assets/font2.ttf"
-FONT_BOLD_PATH = "ShrutixMusic/assets/font3.ttf"
-FALLBACK_THUMB = "ShrutixMusic/assets/temp_thumb.jpg"
-
-def change_image_size(max_w, max_h, image):
-    try:
-        ratio = min(max_w / image.size[0], max_h / image.size[1])
-        return image.resize((int(image.size[0]*ratio), int(image.size[1]*ratio)), Image.LANCZOS)
-    except Exception as e:
-        print(f"[change_image_size Error] {e}")
-        return image
-
-def create_gradient(width, height, color1, color2, horizontal=False):
-    """Create a smooth gradient background"""
-    try:
-        base = Image.new('RGB', (width, height), color1)
-        top = Image.new('RGB', (width, height), color2)
-        
-        mask = Image.new('L', (width, height))
-        mask_data = []
-        
-        for y in range(height):
-            if horizontal:
-                alpha = int(255 * y / height)
-            else:
-                alpha = int(255 * y / height)
-            mask_data.extend([alpha] * width)
-        
-        mask.putdata(mask_data)
-        base.paste(top, (0, 0), mask)
-        return base.convert('RGBA')
-    except Exception as e:
-        print(f"[create_gradient Error] {e}")
-        return Image.new('RGBA', (width, height), color1)
-
-def add_rounded_corners(image, radius):
-    """Add rounded corners to image"""
-    try:
-        mask = Image.new('L', image.size, 0)
-        draw = ImageDraw.Draw(mask)
-        draw.rounded_rectangle([0, 0, image.size[0], image.size[1]], radius=radius, fill=255)
-        
-        result = image.copy()
-        result.putalpha(mask)
-        return result
-    except Exception as e:
-        print(f"[add_rounded_corners Error] {e}")
-        return image
-
-def add_modern_shadow(image, offset=8, blur_radius=15, shadow_color=(0, 0, 0, 100)):
-    """Add modern shadow effect"""
-    try:
-        shadow = Image.new('RGBA', 
-                          (image.size[0] + offset*2, image.size[1] + offset*2), 
-                          (0, 0, 0, 0))
-        
-        shadow_draw = ImageDraw.Draw(shadow)
-        shadow_draw.rounded_rectangle(
-            [offset, offset, 
-             image.size[0] + offset, image.size[1] + offset],
-            radius=25,
-            fill=shadow_color
-        )
-        
-        shadow = shadow.filter(ImageFilter.GaussianBlur(blur_radius))
-        return shadow
-    except Exception as e:
-        print(f"[add_modern_shadow Error] {e}")
-        return image
-
-def wrap_text(draw, text, font, max_width, max_lines=2):
-    """Wrap text with ellipsis if too long"""
-    try:
-        words = text.split()
-        lines = []
-        current_line = []
-        
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            test_width = draw.textlength(test_line, font=font)
-            
-            if test_width <= max_width:
-                current_line.append(word)
-            else:
-                if current_line:
-                    lines.append(' '.join(current_line))
-                    current_line = [word]
-                else:
-                    # Single word too long, truncate
-                    lines.append(word[:20] + "...")
-                    break
-                    
-                if len(lines) >= max_lines:
-                    # Add ellipsis to last line
-                    if len(lines) == max_lines:
-                        last_line = lines[-1]
-                        while draw.textlength(last_line + " ...", font=font) > max_width and len(last_line) > 3:
-                            last_line = last_line[:-1]
-                        lines[-1] = last_line + " ..."
-                    break
-        
-        if current_line and len(lines) < max_lines:
-            lines.append(' '.join(current_line))
-        
-        return '\n'.join(lines)
-    except Exception as e:
-        print(f"[wrap_text Error] {e}")
-        return text[:50]
-
-def fit_title_font(draw, text, max_width, font_path, max_lines=2, start_size=42, min_size=32):
-    """Find optimal font size for title"""
-    try:
-        size = start_size
-        while size >= min_size:
-            try:
-                font = ImageFont.truetype(font_path, size)
-            except:
-                size -= 2
-                continue
-            
-            wrapped = wrap_text(draw, text, font, max_width, max_lines)
-            lines = wrapped.split('\n')
-            
-            if len(lines) <= max_lines and all(draw.textlength(line, font=font) <= max_width for line in lines):
-                return font, wrapped
-            size -= 2
-        
-        font = ImageFont.truetype(font_path, min_size)
-        return font, wrap_text(draw, text, font, max_width, max_lines)
-    except Exception as e:
-        print(f"[fit_title_font Error] {e}")
-        try:
-            font = ImageFont.truetype(font_path, min_size)
-            return font, text[:40]
-        except:
-            return ImageFont.load_default(), text[:40]
-
-def add_glow_effect(draw, text, position, font, glow_color, iterations=3):
-    """Add glow effect to text"""
-    x, y = position
-    for i in range(iterations, 0, -1):
-        offset = i
-        alpha = 100 // (i * 2)
-        glow_color_with_alpha = (glow_color[0], glow_color[1], glow_color[2], alpha)
-        draw.text((x + offset, y + offset), text, fill=glow_color_with_alpha, font=font)
-        draw.text((x - offset, y + offset), text, fill=glow_color_with_alpha, font=font)
-        draw.text((x + offset, y - offset), text, fill=glow_color_with_alpha, font=font)
-        draw.text((x - offset, y - offset), text, fill=glow_color_with_alpha, font=font)
-
-def create_music_visualizer(width, height, count=20):
-    """Create decorative music visualizer bars"""
-    try:
-        visualizer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(visualizer)
-        
-        bar_width = width // (count * 2)
-        spacing = bar_width
-        
-        colors = [ACCENT_PURPLE, ACCENT_PINK, NEON_BLUE, ACCENT_GREEN, NEON_PINK]
-        
-        for i in range(count):
-            x = i * (bar_width + spacing) + spacing
-            # Random height for dynamic look
-            bar_height = random.randint(height // 4, height - 50)
-            bar_y = height - bar_height
-            
-            color = colors[i % len(colors)]
-            
-            # Draw bar with gradient
-            for h in range(bar_height):
-                alpha = int(255 * (h / bar_height))
-                draw.rectangle(
-                    [x, bar_y + h, x + bar_width, bar_y + h + 1],
-                    fill=(color[0], color[1], color[2], alpha)
-                )
-        
-        return visualizer
-    except Exception as e:
-        print(f"[create_music_visualizer Error] {e}")
-        return Image.new('RGBA', (width, height), (0, 0, 0, 0))
-
-async def get_thumb(videoid: str):
+async def gen_thumb(videoid: str):
     url = f"https://www.youtube.com/watch?v={videoid}"
-    thumb_path = None
-    
+
+    # ================= FETCH DATA =================
     try:
-        # Fetch video data
         results = VideosSearch(url, limit=1)
         result = (await results.next())["result"][0]
 
         title = result.get("title", "Unknown Title")
-        duration = result.get("duration", "Unknown")
+        duration = result.get("duration", "3:00")
         thumburl = result["thumbnails"][0]["url"].split("?")[0]
-        views = result.get("viewCount", {}).get("short", "Unknown Views")
+        views = result.get("viewCount", {}).get("short", "1M views")
         channel = result.get("channel", {}).get("name", "Unknown Channel")
 
-        # Download thumbnail
+        thumb_path = CACHE_DIR / f"thumb{videoid}.jpg"
         async with aiohttp.ClientSession() as session:
             async with session.get(thumburl) as resp:
-                if resp.status == 200:
-                    thumb_path = CACHE_DIR / f"thumb{videoid}.png"
-                    async with aiofiles.open(thumb_path, "wb") as f:
-                        await f.write(await resp.read())
+                async with aiofiles.open(thumb_path, "wb") as f:
+                    await f.write(await resp.read())
 
-        base_img = Image.open(thumb_path).convert("RGBA")
+        base_img = Image.open(thumb_path).convert("RGB")
 
-        # Create canvas with gradient background
-        canvas = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 255))
-        
-        # Add gradient background
-        gradient = create_gradient(CANVAS_W, CANVAS_H, 
-                                 GRADIENT_START[:3], 
-                                 GRADIENT_END[:3])
-        canvas.paste(gradient, (0, 0))
-        
+    except:
+        base_img = Image.open(DEFAULT_THUMB).convert("RGB")
+        title = "Music Title"
+        duration = "3:00"
+        views = "1M views"
+        channel = "Music Channel"
+        thumb_path = None
+
+    try:
+        # ================= BACKGROUND =================
+        bg = base_img.resize((CANVAS_W, CANVAS_H), Image.LANCZOS)
+        bg = bg.filter(ImageFilter.GaussianBlur(28))
+
+        bg = ImageEnhance.Color(bg).enhance(1.25)
+        bg = ImageEnhance.Contrast(bg).enhance(1.2)
+        bg = ImageEnhance.Brightness(bg).enhance(1.05)
+
+        overlay = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 170))
+        canvas = Image.alpha_composite(bg.convert("RGBA"), overlay)
         draw = ImageDraw.Draw(canvas)
-        
-        # Add decorative music visualizer at bottom
-        visualizer_height = 120
-        visualizer = create_music_visualizer(CANVAS_W, visualizer_height)
-        canvas.paste(visualizer, (0, CANVAS_H - visualizer_height), visualizer)
-        
-        # Add curved overlay for depth
-        overlay = Image.new('RGBA', (CANVAS_W, CANVAS_H), (0, 0, 0, 0))
+
+        # ================= LEFT ALBUM =================
+        album_size = 260
+        album = base_img.resize((album_size, album_size), Image.LANCZOS)
+
+        mask = Image.new("L", (album_size, album_size), 0)
+        ImageDraw.Draw(mask).ellipse((0, 0, album_size, album_size), fill=255)
+        album.putalpha(mask)
+
+        album_x = 90
+        album_y = CANVAS_H // 2 - album_size // 2
+
+        shadow = Image.new("RGBA", (album_size + 30, album_size + 30), (0, 0, 0, 0))
+        ImageDraw.Draw(shadow).ellipse(
+            (15, 15, album_size + 15, album_size + 15),
+            fill=(0, 0, 0, 140)
+        )
+        shadow = shadow.filter(ImageFilter.GaussianBlur(20))
+        canvas.paste(shadow, (album_x - 15, album_y - 15), shadow)
+
+        canvas.paste(album, (album_x, album_y), album)
+
+        # ================= TEXT =================
+        text_x = album_x + album_size + 60
+        text_y = album_y + 25
+
+        font_title = ImageFont.truetype(FONT_BOLD_PATH, 42)
+        font_meta = ImageFont.truetype(FONT_BOLD_PATH, 26)
+        font_time = ImageFont.truetype(FONT_BOLD_PATH, 22)
+
+        max_width = CANVAS_W - text_x - 80
+        show_title = title
+        while draw.textlength(show_title, font_title) > max_width and len(show_title) > 5:
+            show_title = show_title[:-1]
+        if show_title != title:
+            show_title += "..."
+
+        draw.text((text_x, text_y), show_title, font=font_title, fill=(255, 255, 255))
+        draw.text(
+            (text_x, text_y + 55),
+            f"{channel}  |  {views}",
+            font=font_meta,
+            fill=(220, 220, 220)
+        )
+
+        # ================= PROGRESS BAR =================
+        bar_y = text_y + 120
+        bar_w = 420
+        bar_h = 7
+        progress = int(bar_w * 0.6)
+
+        draw.rounded_rectangle(
+            (text_x, bar_y, text_x + bar_w, bar_y + bar_h),
+            radius=4, fill=(160, 160, 160, 180)
+        )
+        draw.rounded_rectangle(
+            (text_x, bar_y, text_x + progress, bar_y + bar_h),
+            radius=4, fill=(30, 215, 96)
+        )
+
+        draw.ellipse(
+            (text_x + progress - 6, bar_y - 4,
+             text_x + progress + 6, bar_y + bar_h + 4),
+            fill=(30, 215, 96)
+        )
+
+        draw.text((text_x, bar_y + 14), "00:00", font=font_time, fill=(200, 200, 200))
+        draw.text(
+            (text_x + bar_w - draw.textlength(duration, font_time),
+             bar_y + 14),
+            duration, font=font_time, fill=(200, 200, 200)
+        )
+
+        # ================= SAVE =================
+        output = CACHE_DIR / f"{videoid}_final.jpg"
+        canvas.convert("RGB").save(output, quality=95)
+
+        try:
+            if thumb_path and thumb_path.exists():
+                os.remove(thumb_path)
+        except:
+            pass
+
+        return str(output)
+
+    except Exception as e:
+        print("[Thumbnail Error]", e)
+        traceback.print_exc()
+        return None
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(gen_thumb("dQw4w9WgXcQ"))0, 0, 0, 0))
         overlay_draw = ImageDraw.Draw(overlay)
         
         # Create curved shape for design
