@@ -1,285 +1,41 @@
 import os
 import aiohttp
 import aiofiles
-import traceback
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageEnhance
-from py_yt import VideosSearch
+from PIL import Image, ImageDraw, ImageFont
 
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-CANVAS_WIDTH, CANVAS_HEIGHT = 1280, 720
-
-# Font paths - make sure these exist or handle errors
-try:
-    FONT_REGULAR = ImageFont.truetype("assets/font2.ttf", 32)
-except:
-    FONT_REGULAR = ImageFont.load_default()
-    
-try:
-    FONT_BOLD = ImageFont.truetype("assets/font3.ttf", 36)
-except:
-    FONT_BOLD = ImageFont.load_default()
-
-DEFAULT_THUMB = "assets/temp_thumb.jpg"
-
-async def download_thumbnail(videoid: str, url: str) -> str:
-    """Download thumbnail from YouTube"""
-    thumb_path = CACHE_DIR / f"thumb_{videoid}.jpg"
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    async with aiofiles.open(thumb_path, "wb") as f:
-                        await f.write(await response.read())
-                    return str(thumb_path)
-    except Exception as e:
-        print(f"Error downloading thumbnail: {e}")
-    
-    return None
-
 async def get_thumb(videoid: str):
-    """Generate thumbnail for YouTube video"""
-    url = f"https://www.youtube.com/watch?v={videoid}"
-    thumb_path = None
-    
+    """Simple thumbnail generator"""
     try:
-        # Fetch video information
-        results = VideosSearch(url, limit=1)
-        result = (await results.next())["result"][0]
+        # Create simple image
+        img = Image.new('RGB', (1280, 720), color=(40, 40, 60))
+        draw = ImageDraw.Draw(img)
         
-        title = result.get("title", "Unknown Title")
-        duration = result.get("duration", "3:00")
-        thumburl = result["thumbnails"][0]["url"].split("?")[0]
-        views = result.get("viewCount", {}).get("short", "N/A")
-        channel = result.get("channel", {}).get("name", "Unknown")
-        
-        # Download thumbnail
-        thumb_path = await download_thumbnail(videoid, thumburl)
-        
-        if thumb_path and os.path.exists(thumb_path):
-            base_image = Image.open(thumb_path).convert("RGB")
-        else:
-            # Use default if download failed
-            base_image = Image.open(DEFAULT_THUMB).convert("RGB")
-            title = "Music Title"
-            duration = "3:00"
-            views = "1M views"
-            channel = "Music Channel"
-        
-    except Exception as e:
-        print(f"Error fetching video data: {e}")
-        # Try to use default thumbnail
+        # Try to load font, use default if not found
         try:
-            base_image = Image.open(DEFAULT_THUMB).convert("RGB")
-            title = "Music Title"
-            duration = "3:00"
-            views = "1M views"
-            channel = "Music Channel"
-        except Exception:
-            print("Default thumbnail not found, creating basic image")
-            base_image = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), (30, 30, 40))
-            title = "Music Title"
-            duration = "3:00"
-            views = "1M views"
-            channel = "Music Channel"
-    
-    try:
-        # Create background with blur effect
-        background = base_image.resize((CANVAS_WIDTH, CANVAS_HEIGHT), Image.LANCZOS)
-        background = background.filter(ImageFilter.GaussianBlur(15))
+            font_large = ImageFont.truetype("assets/font3.ttf", 48)
+            font_small = ImageFont.truetype("assets/font2.ttf", 28)
+        except:
+            font_large = ImageFont.load_default()
+            font_small = ImageFont.load_default()
         
-        # Enhance background colors
-        background = ImageEnhance.Brightness(background).enhance(0.8)
-        background = ImageEnhance.Contrast(background).enhance(1.1)
+        # Draw text
+        draw.text((100, 200), "NOW PLAYING", font=font_large, fill=(255, 255, 255))
+        draw.text((100, 300), f"Video ID: {videoid[:20]}", font=font_small, fill=(200, 200, 200))
+        draw.text((100, 350), "Music Bot", font=font_small, fill=(180, 180, 180))
         
-        # Create canvas with overlay
-        overlay = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), (0, 0, 0, 120))
-        canvas = Image.alpha_composite(background.convert("RGBA"), overlay)
-        draw = ImageDraw.Draw(canvas)
+        # Save
+        output = CACHE_DIR / f"{videoid}.jpg"
+        img.save(output, "JPEG", quality=90)
         
-        # Create circular album art
-        album_size = 280
-        album_img = base_image.resize((album_size, album_size), Image.LANCZOS)
-        
-        # Create circular mask
-        mask = Image.new("L", (album_size, album_size), 0)
-        mask_draw = ImageDraw.Draw(mask)
-        mask_draw.ellipse((0, 0, album_size, album_size), fill=255)
-        album_img.putalpha(mask)
-        
-        # Album position
-        album_x = 80
-        album_y = (CANVAS_HEIGHT - album_size) // 2
-        
-        # Add shadow to album
-        shadow_size = album_size + 20
-        shadow = Image.new("RGBA", (shadow_size, shadow_size), (0, 0, 0, 0))
-        shadow_draw = ImageDraw.Draw(shadow)
-        shadow_draw.ellipse((10, 10, album_size + 10, album_size + 10), fill=(0, 0, 0, 100))
-        shadow = shadow.filter(ImageFilter.GaussianBlur(10))
-        
-        canvas.paste(shadow, (album_x - 10, album_y - 10), shadow)
-        canvas.paste(album_img, (album_x, album_y), album_img)
-        
-        # Content area
-        content_x = album_x + album_size + 60
-        content_y = album_y
-        
-        # Title
-        max_title_width = CANVAS_WIDTH - content_x - 40
-        display_title = title
-        
-        # Truncate title if too long
-        while draw.textlength(display_title, font=FONT_BOLD) > max_title_width and len(display_title) > 10:
-            display_title = display_title[:-1]
-        
-        if display_title != title:
-            display_title = display_title[:-3] + "..."
-        
-        draw.text((content_x, content_y), display_title, font=FONT_BOLD, fill=(255, 255, 255))
-        
-        # Channel and views
-        metadata_y = content_y + 50
-        metadata_text = f"{channel} • {views}"
-        draw.text((content_x, metadata_y), metadata_text, font=FONT_REGULAR, fill=(200, 200, 200))
-        
-        # Duration
-        duration_y = metadata_y + 40
-        draw.text((content_x, duration_y), f"Duration: {duration}", font=FONT_REGULAR, fill=(180, 180, 180))
-        
-        # Progress bar
-        bar_y = duration_y + 60
-        bar_width = 450
-        bar_height = 6
-        
-        # Background bar
-        draw.rounded_rectangle(
-            (content_x, bar_y, content_x + bar_width, bar_y + bar_height),
-            radius=3,
-            fill=(100, 100, 100, 180)
-        )
-        
-        # Progress (60%)
-        progress_width = int(bar_width * 0.6)
-        draw.rounded_rectangle(
-            (content_x, bar_y, content_x + progress_width, bar_y + bar_height),
-            radius=3,
-            fill=(30, 215, 96)
-        )
-        
-        # Time labels
-        time_font = ImageFont.truetype("assets/font2.ttf", 20) if os.path.exists("assets/font2.ttf") else ImageFont.load_default()
-        draw.text((content_x, bar_y + 15), "0:00", font=time_font, fill=(150, 150, 150))
-        draw.text((content_x + bar_width - 40, bar_y + 15), duration, font=time_font, fill=(150, 150, 150))
-        
-        # Now Playing badge
-        badge_y = bar_y + 60
-        draw.rounded_rectangle(
-            (content_x, badge_y, content_x + 150, badge_y + 35),
-            radius=17,
-            fill=(255, 20, 147, 200)
-        )
-        draw.text((content_x + 15, badge_y + 8), "▶ NOW PLAYING", font=time_font, fill=(255, 255, 255))
-        
-        # Save final image
-        output_path = CACHE_DIR / f"thumb_final_{videoid}.jpg"
-        canvas.convert("RGB").save(output_path, "JPEG", quality=95)
-        
-        # Cleanup
-        if thumb_path and os.path.exists(thumb_path):
-            try:
-                os.remove(thumb_path)
-            except:
-                pass
-        
-        return str(output_path)
+        return str(output)
         
     except Exception as e:
-        print(f"Error generating thumbnail: {e}")
-        traceback.print_exc()
-        
-        # Return default if available
-        if os.path.exists(DEFAULT_THUMB):
-            return DEFAULT_THUMB
-        
-        return None        return str(output)
-        
-    except Exception as e:
-        print(f"Error generating thumb: {e}")
-        return "ShrutixMusic/assets/temp_thumb.jpg"    try:
-        base = Image.new('RGB', (width, height), color1)
-        top = Image.new('RGB', (width, height), color2)
-        
-        mask = Image.new('L', (width, height))
-        mask_data = []
-        
-        for y in range(height):
-            if horizontal:
-                alpha = int(255 * y / height)
-            else:
-                alpha = int(255 * y / height)
-            mask_data.extend([alpha] * width)
-        
-        mask.putdata(mask_data)
-        base.paste(top, (0, 0), mask)
-        return base.convert('RGBA')
-    except Exception as e:
-        print(f"[create_gradient Error] {e}")
-        return Image.new('RGBA', (width, height), color1)
-
-def add_rounded_corners(image, radius):
-    """Add rounded corners to image"""
-    try:
-        mask = Image.new('L', image.size, 0)
-        draw = ImageDraw.Draw(mask)
-        draw.rounded_rectangle([0, 0, image.size[0], image.size[1]], radius=radius, fill=255)
-        
-        result = image.copy()
-        result.putalpha(mask)
-        return result
-    except Exception as e:
-        print(f"[add_rounded_corners Error] {e}")
-        return image
-
-def add_modern_shadow(image, offset=8, blur_radius=15, shadow_color=(0, 0, 0, 100)):
-    """Add modern shadow effect"""
-    try:
-        shadow = Image.new('RGBA', 
-                          (image.size[0] + offset*2, image.size[1] + offset*2), 
-                          (0, 0, 0, 0))
-        
-        shadow_draw = ImageDraw.Draw(shadow)
-        shadow_draw.rounded_rectangle(
-            [offset, offset, 
-             image.size[0] + offset, image.size[1] + offset],
-            radius=25,
-            fill=shadow_color
-        )
-        
-        shadow = shadow.filter(ImageFilter.GaussianBlur(blur_radius))
-        return shadow
-    except Exception as e:
-        print(f"[add_modern_shadow Error] {e}")
-        return image
-
-def wrap_text(draw, text, font, max_width, max_lines=2):
-    """Wrap text with ellipsis if too long"""
-    try:
-        words = text.split()
-        lines = []
-        current_line = []
-        
-        for word in words:
-            test_line = ' '.join(current_line + [word])
-            test_width = draw.textlength(test_line, font=font)
-            
-            if test_width <= max_width:
-                current_line.append(word)
-            else:
-                if current_line:
+        print(f"Simple thumb error: {e}")
+        return "assets/temp_thumb.jpg"                if current_line:
                     lines.append(' '.join(current_line))
                     current_line = [word]
                 else:
