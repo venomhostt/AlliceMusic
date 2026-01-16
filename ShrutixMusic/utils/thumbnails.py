@@ -150,6 +150,122 @@ async def get_thumb(videoid: str):
 
 
 # Remove the problematic line that was causing the syntax error
+# asyncio.run(gen_thumb("dQw4w9WgXcQ"))0, 0, 0, 0))  # <-- This line is the problem            async with session.get(thumburl) as resp:
+                async with aiofiles.open(thumb_path, "wb") as f:
+                    await f.write(await resp.read())
+
+        base_img = Image.open(thumb_path).convert("RGB")
+
+    except Exception:
+        base_img = Image.open(DEFAULT_THUMB).convert("RGB")
+        title = "Music Title"
+        duration = "3:00"
+        views = "1M views"
+        channel = "Unknown Channel"
+    
+    # ========== CREATE THUMBNAIL ==========
+    # Resize base image
+    base_img = base_img.resize((CANVAS_W, CANVAS_H), Image.Resampling.LANCZOS)
+    
+    # Create canvas
+    canvas = Image.new("RGB", (CANVAS_W, CANVAS_H), (0, 0, 0))
+    
+    # Apply dark overlay
+    overlay = Image.new("RGBA", (CANVAS_W, CANVAS_H), (0, 0, 0, 150))
+    base_img.paste(overlay, (0, 0), overlay)
+    
+    # Add blurred background
+    blurred = base_img.filter(ImageFilter.GaussianBlur(10))
+    canvas.paste(blurred, (0, 0))
+    
+    # Add main image in center
+    img_w, img_h = 600, 400
+    img_x, img_y = (CANVAS_W - img_w) // 2, (CANVAS_H - img_h) // 2
+    
+    main_img = base_img.resize((img_w, img_h), Image.Resampling.LANCZOS)
+    
+    # Create rounded corners
+    mask = Image.new("L", (img_w, img_h), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle([0, 0, img_w, img_h], radius=20, fill=255)
+    
+    canvas.paste(main_img, (img_x, img_y), mask)
+    
+    # Add shadow effect
+    shadow = Image.new("RGBA", (img_w + 20, img_h + 20), (0, 0, 0, 100))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_draw.rounded_rectangle([0, 0, img_w + 20, img_h + 20], radius=25, fill=(0, 0, 0, 100))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(15))
+    canvas.paste(shadow, (img_x - 10, img_y - 10), shadow)
+    
+    # Load fonts
+    try:
+        title_font = ImageFont.truetype(FONT_BOLD_PATH, 48)
+        info_font = ImageFont.truetype(FONT_BOLD_PATH, 32)
+    except:
+        title_font = ImageFont.load_default()
+        info_font = ImageFont.load_default()
+    
+    draw = ImageDraw.Draw(canvas)
+    
+    # Draw title (centered at top)
+    title_lines = []
+    words = title.split()
+    current_line = []
+    
+    for word in words:
+        test_line = " ".join(current_line + [word])
+        bbox = draw.textbbox((0, 0), test_line, font=title_font)
+        text_width = bbox[2] - bbox[0]
+        
+        if text_width < CANVAS_W - 100:
+            current_line.append(word)
+        else:
+            title_lines.append(" ".join(current_line))
+            current_line = [word]
+    
+    if current_line:
+        title_lines.append(" ".join(current_line))
+    
+    title_y = 50
+    for line in title_lines:
+        bbox = draw.textbbox((0, 0), line, font=title_font)
+        text_width = bbox[2] - bbox[0]
+        text_x = (CANVAS_W - text_width) // 2
+        draw.text((text_x, title_y), line, font=title_font, fill="white", stroke_width=2, stroke_fill="black")
+        title_y += 60
+    
+    # Draw info at bottom
+    info_text = f"⏱️ {duration} | 👁️ {views} | 📺 {channel}"
+    bbox = draw.textbbox((0, 0), info_text, font=info_font)
+    text_width = bbox[2] - bbox[0]
+    text_x = (CANVAS_W - text_width) // 2
+    draw.text((text_x, CANVAS_H - 100), info_text, font=info_font, fill="yellow", stroke_width=1, stroke_fill="black")
+    
+    # Save thumbnail
+    thumb_path = CACHE_DIR / f"{videoid}_thumb.jpg"
+    canvas.save(thumb_path, "JPEG", quality=95)
+    
+    return str(thumb_path)
+
+
+async def get_thumb(videoid: str):
+    """Get thumbnail path for given video ID."""
+    thumb_path = CACHE_DIR / f"{videoid}_thumb.jpg"
+    
+    # If thumbnail doesn't exist, generate it
+    if not thumb_path.exists():
+        try:
+            thumb_path = await gen_thumb(videoid)
+        except Exception as e:
+            # Return default thumbnail if generation fails
+            print(f"Failed to generate thumbnail: {e}")
+            return DEFAULT_THUMB
+    
+    return str(thumb_path)
+
+
+# Remove the problematic line that was causing the syntax error
 # asyncio.run(gen_thumb("dQw4w9WgXcQ"))0, 0, 0, 0))  # <-- This line is the problem        views = "1M views"
         channel = "Music Channel"
         thumb_path = None
