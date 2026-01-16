@@ -1,40 +1,41 @@
 import os
 import aiohttp
 import aiofiles
-import traceback
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageEnhance
-from py_yt import VideosSearch
+from PIL import Image, ImageDraw, ImageFont
 
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-CANVAS_W, CANVAS_H = 1320, 760
-BG_BLUR = 16
-BG_BRIGHTNESS = 1  
-
-LIME_BORDER = (158, 255, 49, 255)
-RING_COLOR  = (98, 193, 169, 255)
-TEXT_WHITE  = (245, 245, 245, 255)
-TEXT_SOFT   = (230, 230, 230, 255)
-TEXT_SHADOW = (0, 0, 0, 140)
-
-FONT_REGULAR_PATH = "ShrutixMusic/assets/font2.ttf"
-FONT_BOLD_PATH    = "ShrutixMusic/assets/font3.ttf"
-FALLBACK_THUMB    = "ShrutixMusic/assets/temp_thumb.jpg"
-
-def change_image_size(max_w, max_h, image):
+async def get_thumb(videoid: str):
+    """Simple thumbnail generator"""
     try:
-        ratio = min(max_w / image.size[0], max_h / image.size[1])
-        return image.resize((int(image.size[0]*ratio), int(image.size[1]*ratio)), Image.LANCZOS)
+        # Create simple image
+        img = Image.new('RGB', (1280, 720), color=(40, 40, 60))
+        draw = ImageDraw.Draw(img)
+        
+        # Try to load font, use default if not found
+        try:
+            font_large = ImageFont.truetype("assets/font3.ttf", 48)
+            font_small = ImageFont.truetype("assets/font2.ttf", 28)
+        except:
+            font_large = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+        
+        # Draw text
+        draw.text((100, 200), "NOW PLAYING", font=font_large, fill=(255, 255, 255))
+        draw.text((100, 300), f"Video ID: {videoid[:20]}", font=font_small, fill=(200, 200, 200))
+        draw.text((100, 350), "Music Bot", font=font_small, fill=(180, 180, 180))
+        
+        # Save
+        output = CACHE_DIR / f"{videoid}.jpg"
+        img.save(output, "JPEG", quality=90)
+        
+        return str(output)
+        
     except Exception as e:
-        print(f"[change_image_size Error] {e}")
-        return image
-
-def wrap_two_lines(draw, text, font, max_width):
-    try:
-        words = text.split()
-        line1 = ""
+        print(f"Simple thumb error: {e}")
+        return "assets/temp_thumb.jpg"        line1 = ""
         line2 = ""
         for w in words:
             test = (line1 + " " + w).strip()
