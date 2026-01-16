@@ -1,40 +1,32 @@
 import os
 import aiohttp
 import aiofiles
-import traceback
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageEnhance
+from PIL import Image, ImageDraw, ImageFilter
 from py_yt import VideosSearch
 
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-CANVAS_W, CANVAS_H = 1200, 675
-BG_BLUR = 15
-
-FONT_PATH = "ShrutixMusic/assets/font2.ttf"
-FALLBACK_THUMB = "ShrutixMusic/assets/temp_thumb.jpg"
-
 async def get_thumb(videoid: str):
-    url = f"https://www.youtube.com/watch?v={videoid}"
-    thumb_path = None
-    
     try:
-        results = VideosSearch(url, limit=1)
+        results = VideosSearch(f"https://www.youtube.com/watch?v={videoid}", limit=1)
         result = (await results.next())["result"][0]
-
-        title = result.get("title", "Unknown Title")
-        duration = result.get("duration", "Unknown")
-        thumburl = result["thumbnails"][0]["url"].split("?")[0]
-        views = result.get("viewCount", {}).get("short", "Unknown Views")
-        channel = result.get("channel", {}).get("name", "Unknown Channel")
-
+        
+        thumburl = result["thumbnails"][0]["url"]
+        
         async with aiohttp.ClientSession() as session:
             async with session.get(thumburl) as resp:
                 if resp.status == 200:
-                    thumb_path = CACHE_DIR / f"thumb{videoid}.png"
+                    thumb_path = CACHE_DIR / f"{videoid}.png"
                     async with aiofiles.open(thumb_path, "wb") as f:
                         await f.write(await resp.read())
+                    return str(thumb_path)
+        
+        return None
+    except Exception as e:
+        print(f"Thumbnail error: {e}")
+        return None                        await f.write(await resp.read())
 
         base_img = Image.open(thumb_path).convert("RGBA")
 
