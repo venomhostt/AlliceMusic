@@ -1,6 +1,6 @@
 FROM nikolaik/python-nodejs:python3.10-nodejs20
 
-RUN apt-get update && apt-get install -y git
+RUN apt-get update && apt-get install -y git nodejs npm
 
 RUN curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
     -o ffmpeg.tar.xz && \
