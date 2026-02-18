@@ -1,29 +1,15 @@
-# Use stable official Python image
-FROM python:3.10-slim
+FROM nikolaik/python-nodejs:python3.10-nodejs20
 
-# Install system dependencies (ffmpeg + curl)
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    ffmpeg \
-    nodejs \
-    npm \
-    && apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+    -o ffmpeg.tar.xz && \
+    tar -xJf ffmpeg.tar.xz && \
+    mv ffmpeg-*-static/ffmpeg /usr/local/bin/ && \
+    mv ffmpeg-*-static/ffprobe /usr/local/bin/ && \
+    rm -rf ffmpeg*
 
-# Create app directory
-WORKDIR /app
+COPY . /app/
+WORKDIR /app/
 
-# Copy requirements first (better caching)
-COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Install python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy rest of project
-COPY . .
-
-# Expose port (Heroku uses dynamic $PORT)
-ENV PORT=5000
-
-# Start command
 CMD ["bash", "start"]
