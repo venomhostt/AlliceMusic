@@ -1,14 +1,29 @@
-FROM nikolaik/python-nodejs:python3.10-nodejs19
+# Use stable official Python image
+FROM python:3.10-slim
 
-RUN sed -i 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' /etc/apt/sources.list && \
-    sed -i '/security.debian.org/d' /etc/apt/sources.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
-    apt-get clean && \
+# Install system dependencies (ffmpeg + curl)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ffmpeg \
+    nodejs \
+    npm \
+    && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-COPY . /app/
-WORKDIR /app/
-RUN pip3 install --no-cache-dir -U -r requirements.txt
+# Create app directory
+WORKDIR /app
 
-CMD bash start
+# Copy requirements first (better caching)
+COPY requirements.txt .
+
+# Install python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy rest of project
+COPY . .
+
+# Expose port (Heroku uses dynamic $PORT)
+ENV PORT=5000
+
+# Start command
+CMD ["bash", "start"]
