@@ -1,15 +1,22 @@
-FROM nikolaik/python-nodejs:python3.10-nodejs20
+FROM python:3.10-slim
 
-RUN curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
-    -o ffmpeg.tar.xz && \
-    tar -xJf ffmpeg.tar.xz && \
-    mv ffmpeg-*-static/ffmpeg /usr/local/bin/ && \
-    mv ffmpeg-*-static/ffprobe /usr/local/bin/ && \
-    rm -rf ffmpeg*
+# Install required system packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ffmpeg \
+    git \
+    nodejs \
+    npm \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-COPY . /app/
-WORKDIR /app/
+WORKDIR /app
 
-RUN pip3 install --no-cache-dir -r requirements.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV PORT=5000
 
 CMD ["bash", "start"]
